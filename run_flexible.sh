@@ -77,6 +77,14 @@ for model_path in "${models[@]}"; do
 
     mkdir -p "${OUTPUT_DIR}"
 
+    # Check if this is a midasheng model and handle transformer version
+    is_midasheng=false
+    if [[ "${model_path}" == *"midasheng"* ]]; then
+        is_midasheng=true
+        echo "Detected midasheng model, installing transformers==4.52.4..." | tee -a "${LOG_FILE}"
+        pip install transformers==4.52.4 2>&1 | tee -a "${LOG_FILE}"
+    fi
+
     # Add log header if available
     if command -v add_log_header &> /dev/null; then
         add_log_header COMMENT >> "${LOG_FILE}"
@@ -98,6 +106,12 @@ for model_path in "${models[@]}"; do
         --output_dir "${OUTPUT_DIR}" \
         "${model_path}" \
         "${all_tasks[@]}" 2>&1 | tee -a "${LOG_FILE}"
+
+    # Restore transformers version if it was a midasheng model
+    if [[ "${is_midasheng}" == true ]]; then
+        echo "Restoring transformers==4.47.1 after midasheng model..." | tee -a "${LOG_FILE}"
+        pip install transformers==4.47.1 2>&1 | tee -a "${LOG_FILE}"
+    fi
 
     echo "Completed model: ${model_name}" | tee -a "${LOG_FILE}"
     echo "" | tee -a "${LOG_FILE}"
