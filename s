@@ -1,0 +1,8 @@
+    "dcase2025_autotrash_eval_task"
+    "dcase2025_bandsealer_eval_task"
+    "dcase2025_coffeegrinder_eval_task"
+    "dcase2025_homecamera_eval_task"
+    "dcase2025_polisher_eval_task"
+    "dcase2025_screwfeeder_eval_task"
+    "dcase2025_toypet_eval_task"
+    "dcase2025_toyrccar_eval_task"
