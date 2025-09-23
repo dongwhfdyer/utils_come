@@ -55,10 +55,10 @@ COMMENT=""
 mkdir -p "${BASE_OUTPUT_DIR}"
 mkdir -p "${BASE_LOG_DIR}"
 
-# Convert task names to full paths
+# Convert task names to full paths (for logging only)
 all_tasks=()
 for task in "${tasks[@]}"; do
-    all_tasks+=("src/tasks/${task}.py")
+	all_tasks+=("src/tasks/${task}.py")
 done
 
 echo "==================== Starting Flexible Run ===================="
@@ -96,16 +96,46 @@ for model_path in "${models[@]}"; do
     echo "Tasks: ${tasks[*]}" | tee -a "${LOG_FILE}"
     echo "======================================================================" | tee -a "${LOG_FILE}"
 
-    # Run all tasks for this model
-    echo "Running ${#tasks[@]} tasks for model ${model_name}..." | tee -a "${LOG_FILE}"
+    # Resume/skip logic: if all tasks are already done, skip entire model
+    done_count=0
+    for task in "${tasks[@]}"; do
+		marker_path="${OUTPUT_DIR}/.done_${task}"
+		if [[ -f "${marker_path}" ]]; then
+			((done_count++))
+		fi
+	done
 
-    python -m xares.run \
-        --from-stage 1 \
-        --to-stage 2 \
-        --max-jobs "${MAX_JOBS}" \
-        --output_dir "${OUTPUT_DIR}" \
-        "${model_path}" \
-        "${all_tasks[@]}" 2>&1 | tee -a "${LOG_FILE}"
+    if [[ "${done_count}" -ge "${#tasks[@]}" ]]; then
+		echo "All ${done_count}/${#tasks[@]} tasks already completed for model ${model_name}. Skipping model." | tee -a "${LOG_FILE}"
+		continue
+    fi
+
+    # Run tasks one-by-one so we can resume per task
+    echo "Running up to ${#tasks[@]} tasks for model ${model_name} (skipping completed)..." | tee -a "${LOG_FILE}"
+
+    for task in "${tasks[@]}"; do
+		task_path="src/tasks/${task}.py"
+		marker_path="${OUTPUT_DIR}/.done_${task}"
+
+		if [[ -f "${marker_path}" ]]; then
+			echo "[SKIP] Task ${task} already completed (marker: $(basename "${marker_path}"))" | tee -a "${LOG_FILE}"
+			continue
+		fi
+
+		echo "[RUN ] Task ${task} (${task_path})" | tee -a "${LOG_FILE}"
+		python -m xares.run \
+			--from-stage 1 \
+			--to-stage 2 \
+			--max-jobs "${MAX_JOBS}" \
+			--output_dir "${OUTPUT_DIR}" \
+			"${model_path}" \
+			"${task_path}" 2>&1 | tee -a "${LOG_FILE}"
+
+		# Mark task as done only if previous command succeeded (set -e is active)
+		touch "${marker_path}"
+		echo "[DONE] Task ${task} completed. Created marker $(basename "${marker_path}")" | tee -a "${LOG_FILE}"
+		echo "" | tee -a "${LOG_FILE}"
+	done
 
     # Restore transformers version if it was a midasheng model
     if [[ "${is_midasheng}" == true ]]; then
