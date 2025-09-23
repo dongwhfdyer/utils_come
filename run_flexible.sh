@@ -1,0 +1,109 @@
+#!/usr/local/bin/zsh
+# Flexible script to run multiple models on multiple tasks
+set -e
+set -o pipefail
+
+source /data1/miniforge3/etc/profile.d/conda.sh
+source /data1/root/.zsh_utils/dl_utils/dl_utils.zsh
+
+conda activate py310
+
+cd /data1/repos/EAT_projs/xares-main
+
+export EAT_FRAMEWORK="fairseq"
+export EAT_MODE="pretrain"
+
+#---------Configuration Block------------------------------
+# List of models to run (specify the encoder file paths)
+models=(
+    "example/ced/tiny_ced.py"
+    "example/ced/mini_ced.py"
+    "example/ced/small_ced.py"
+    "example/ced/base_ced.py"
+    "example/dasheng/dasheng_encoder.py"
+    "example/wav2vec2/wav2vec2_encoder.py"
+    "example/whisper/whisper_encoder.py"
+    # Add more models here as needed
+    # "example/data2vec/data2vec_encoder.py"
+)
+
+# List of tasks to run (specify task names without .py extension)
+tasks=(
+    "2023_Gree_Motor_task"
+    "2023_Steering_Column_task"
+    "2023_Xinjie_Pump_task"
+    "dcase2025_autotrash_eval_task"
+    "dcase2025_bandsealer_eval_task"
+    "dcase2025_coffeegrinder_eval_task"
+    "asvspoof_task"
+    "urbansound8k_task"
+    "speechcommandsv1_task"
+    # Add more tasks here as needed
+    # "esc50_task"
+    # "fsd50k_task"
+    # "maestro_task"
+)
+
+# Global settings
+MAX_JOBS=8
+BASE_OUTPUT_DIR="/data1/repos/EAT_projs/xares-main/outputs_flexible_run"
+BASE_LOG_DIR="/data1/repos/EAT_projs/logfiles/xares_main_run"
+COMMENT=""
+#---------End Configuration Block------------------------------
+
+# Create base directories
+mkdir -p "${BASE_OUTPUT_DIR}"
+mkdir -p "${BASE_LOG_DIR}"
+
+# Convert task names to full paths
+all_tasks=()
+for task in "${tasks[@]}"; do
+    all_tasks+=("src/tasks/${task}.py")
+done
+
+echo "==================== Starting Flexible Run ===================="
+echo "Models to run: ${#models[@]}"
+echo "Tasks to run: ${#tasks[@]}"
+echo "Total combinations: $((${#models[@]} * ${#tasks[@]}))"
+echo "=================================================================="
+
+# Main execution loop
+for model_path in "${models[@]}"; do
+    # Extract model name from path for naming
+    model_name=$(basename "${model_path}" .py)
+
+    LOG_FILE="${BASE_LOG_DIR}/flexible_${model_name}.log"
+    OUTPUT_DIR="${BASE_OUTPUT_DIR}/${model_name}"
+
+    mkdir -p "${OUTPUT_DIR}"
+
+    # Add log header if available
+    if command -v add_log_header &> /dev/null; then
+        add_log_header COMMENT >> "${LOG_FILE}"
+    fi
+
+    echo "==================== Running Model: ${model_name} ====================" | tee -a "${LOG_FILE}"
+    echo "Model path: ${model_path}" | tee -a "${LOG_FILE}"
+    echo "Output directory: ${OUTPUT_DIR}" | tee -a "${LOG_FILE}"
+    echo "Tasks: ${tasks[*]}" | tee -a "${LOG_FILE}"
+    echo "======================================================================" | tee -a "${LOG_FILE}"
+
+    # Run all tasks for this model
+    echo "Running ${#tasks[@]} tasks for model ${model_name}..." | tee -a "${LOG_FILE}"
+
+    python -m xares.run \
+        --from-stage 1 \
+        --to-stage 2 \
+        --max-jobs "${MAX_JOBS}" \
+        --output_dir "${OUTPUT_DIR}" \
+        "${model_path}" \
+        "${all_tasks[@]}" 2>&1 | tee -a "${LOG_FILE}"
+
+    echo "Completed model: ${model_name}" | tee -a "${LOG_FILE}"
+    echo "" | tee -a "${LOG_FILE}"
+done
+
+echo "==================== All Runs Completed ===================="
+echo "Results saved in: ${BASE_OUTPUT_DIR}"
+echo "Logs saved in: ${BASE_LOG_DIR}"
+echo "=============================================================="
