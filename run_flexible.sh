@@ -1,153 +1,81 @@
-#!/usr/local/bin/zsh
-# Flexible script to run multiple models on multiple tasks
-set -e
-set -o pipefail
-
-source /data1/miniforge3/etc/profile.d/conda.sh
-source /data1/root/.zsh_utils/dl_utils/dl_utils.zsh
-
-conda activate py310
-
-cd /data1/repos/EAT_projs/xares-main
-
-export EAT_FRAMEWORK="fairseq"
-export EAT_MODE="pretrain"
-
-#---------Configuration Block------------------------------
-# List of models to run (specify the encoder file paths)
-models=(
-    "example/ced/tiny_ced.py"
-    "example/ced/mini_ced.py"
-    "example/ced/small_ced.py"
-    "example/ced/base_ced.py"
-    "example/dasheng/dasheng_encoder.py"
-    "example/wav2vec2/wav2vec2_encoder.py"
-    "example/whisper/whisper_encoder.py"
-    # Add more models here as needed
-    # "example/data2vec/data2vec_encoder.py"
-)
-
-# List of tasks to run (specify task names without .py extension)
-tasks=(
-    "2023_Gree_Motor_task"
-    "2023_Steering_Column_task"
-    "2023_Xinjie_Pump_task"
-    "dcase2025_autotrash_eval_task"
-    "dcase2025_bandsealer_eval_task"
-    "dcase2025_coffeegrinder_eval_task"
-    "asvspoof_task"
-    "urbansound8k_task"
-    "speechcommandsv1_task"
-    # Add more tasks here as needed
-    # "esc50_task"
-    # "fsd50k_task"
-    # "maestro_task"
-)
-
-# Global settings
-MAX_JOBS=8
-BASE_OUTPUT_DIR="/data1/repos/EAT_projs/xares-main/outputs_flexible_run"
-BASE_LOG_DIR="/data1/repos/EAT_projs/logfiles/xares_main_run"
-COMMENT=""
-#---------End Configuration Block------------------------------
-
-# Create base directories
-mkdir -p "${BASE_OUTPUT_DIR}"
-mkdir -p "${BASE_LOG_DIR}"
-
-# Convert task names to full paths (for logging only)
-all_tasks=()
-for task in "${tasks[@]}"; do
-	all_tasks+=("src/tasks/${task}.py")
-done
-
-echo "==================== Starting Flexible Run ===================="
-echo "Models to run: ${#models[@]}"
-echo "Tasks to run: ${#tasks[@]}"
-echo "Total combinations: $((${#models[@]} * ${#tasks[@]}))"
-echo "=================================================================="
-
-# Main execution loop
-for model_path in "${models[@]}"; do
-    # Extract model name from path for naming
-    model_name=$(basename "${model_path}" .py)
-
-    LOG_FILE="${BASE_LOG_DIR}/flexible_${model_name}.log"
-    OUTPUT_DIR="${BASE_OUTPUT_DIR}/${model_name}"
-
-    mkdir -p "${OUTPUT_DIR}"
-
-    # Check if this is a midasheng model and handle transformer version
-    is_midasheng=false
-    if [[ "${model_path}" == *"midasheng"* ]]; then
-        is_midasheng=true
-        echo "Detected midasheng model, installing transformers==4.52.4..." | tee -a "${LOG_FILE}"
-        pip install transformers==4.52.4 2>&1 | tee -a "${LOG_FILE}"
-    fi
-
-    # Add log header if available
-    if command -v add_log_header &> /dev/null; then
-        add_log_header COMMENT >> "${LOG_FILE}"
-    fi
-
-    echo "==================== Running Model: ${model_name} ====================" | tee -a "${LOG_FILE}"
-    echo "Model path: ${model_path}" | tee -a "${LOG_FILE}"
-    echo "Output directory: ${OUTPUT_DIR}" | tee -a "${LOG_FILE}"
-    echo "Tasks: ${tasks[*]}" | tee -a "${LOG_FILE}"
-    echo "======================================================================" | tee -a "${LOG_FILE}"
-
-    # Resume/skip logic: if all tasks are already done, skip entire model
-    done_count=0
-    for task in "${tasks[@]}"; do
-		marker_path="${OUTPUT_DIR}/.done_${task}"
-		if [[ -f "${marker_path}" ]]; then
-			((done_count++))
-		fi
-	done
-
-    if [[ "${done_count}" -ge "${#tasks[@]}" ]]; then
-		echo "All ${done_count}/${#tasks[@]} tasks already completed for model ${model_name}. Skipping model." | tee -a "${LOG_FILE}"
-		continue
-    fi
-
-    # Run tasks one-by-one so we can resume per task
-    echo "Running up to ${#tasks[@]} tasks for model ${model_name} (skipping completed)..." | tee -a "${LOG_FILE}"
-
-    for task in "${tasks[@]}"; do
-		task_path="src/tasks/${task}.py"
-		marker_path="${OUTPUT_DIR}/.done_${task}"
-
-		if [[ -f "${marker_path}" ]]; then
-			echo "[SKIP] Task ${task} already completed (marker: $(basename "${marker_path}"))" | tee -a "${LOG_FILE}"
-			continue
-		fi
-
-		echo "[RUN ] Task ${task} (${task_path})" | tee -a "${LOG_FILE}"
-		python -m xares.run \
-			--from-stage 1 \
-			--to-stage 2 \
-			--max-jobs "${MAX_JOBS}" \
-			--output_dir "${OUTPUT_DIR}" \
-			"${model_path}" \
-			"${task_path}" 2>&1 | tee -a "${LOG_FILE}"
-
-		# Mark task as done only if previous command succeeded (set -e is active)
-		touch "${marker_path}"
-		echo "[DONE] Task ${task} completed. Created marker $(basename "${marker_path}")" | tee -a "${LOG_FILE}"
-		echo "" | tee -a "${LOG_FILE}"
-	done
-
-    # Restore transformers version if it was a midasheng model
-    if [[ "${is_midasheng}" == true ]]; then
-        echo "Restoring transformers==4.47.1 after midasheng model..." | tee -a "${LOG_FILE}"
-        pip install transformers==4.47.1 2>&1 | tee -a "${LOG_FILE}"
-    fi
-
-    echo "Completed model: ${model_name}" | tee -a "${LOG_FILE}"
-    echo "" | tee -a "${LOG_FILE}"
-done
-
-echo "==================== All Runs Completed ===================="
-echo "Results saved in: ${BASE_OUTPUT_DIR}"
-echo "Logs saved in: ${BASE_LOG_DIR}"
-echo "=============================================================="
+Rank
+Submission Information
+Evaluation Dataset
+Development Dataset
+Submission Code
+Technical
+Report
+Official
+Rank 
+Official
+Score 
+AutoTrash
+(AUC) 
+AutoTrash
+(pAUC) 
+BandSealer
+(AUC) 
+BandSealer
+(pAUC) 
+CoffeeGrinder
+(AUC) 
+CoffeeGrinder
+(pAUC) 
+HomeCamera
+(AUC) 
+HomeCamera
+(pAUC) 
+Polisher
+(AUC) 
+Polisher
+(pAUC) 
+ScrewFeeder
+(AUC) 
+ScrewFeeder
+(pAUC) 
+ToyPet
+(AUC) 
+ToyPet
+(pAUC) 
+ToyRCCar
+(AUC) 
+ToyRCCar
+(pAUC) 
+ToyCar
+(AUC) 
+ToyCar
+(pAUC) 
+ToyTrain
+(AUC) 
+ToyTrain
+(pAUC) 
+Bearing
+(AUC) 
+Bearing
+(pAUC) 
+Fan
+(AUC) 
+Fan
+(pAUC) 
+Gearbox
+(AUC) 
+Gearbox
+(pAUC) 
+Slider
+(AUC) 
+Slider
+(pAUC) 
+Valve
+(AUC) 
+Valve
+(pAUC) 
+1	Wang_MYPS_task2_3		1	61.6276 % ±0.0014	80.61 %	77.05 %	64.22 %	51.63 %	57.94 %	52.16 %	62.45 %	53.79 %	68.76 %	54.05 %	90.24 %	79.16 %	62.64 %	54.05 %	44.35 %	52.84 %	66.22 %	50.74 %	62.10 %	54.63 %	62.41 %	65.68 %	56.98 %	51.60 %	60.18 %	57.75 %	62.34 %	53.08 %	68.66 %	62.28 %
+2	Saengthong_SCITOK_task2_2		2	61.5694 % ±0.0015	86.06 %	71.05 %	62.38 %	57.37 %	53.23 %	52.00 %	52.37 %	52.32 %	67.40 %	56.68 %	84.26 %	73.47 %	67.11 %	57.84 %	52.95 %	51.63 %	67.34 %	55.68 %	77.11 %	59.79 %	65.99 %	60.32 %	54.49 %	56.95 %	68.31 %	58.74 %	70.23 %	57.05 %	81.46 %	72.00 %
+3	Yang_NBU_task2_1		3	61.2013 % ±0.0013	84.76 %	75.37 %	66.41 %	57.79 %	50.09 %	49.63 %	62.99 %	53.37 %	75.64 %	61.32 %	94.22 %	80.00 %	56.83 %	53.21 %	42.80 %	49.74 %	64.06 %	51.79 %	61.85 %	55.90 %	63.34 %	63.56 %	58.19 %	49.97 %	59.95 %	53.25 %	63.96 %	56.00 %	68.71 %	58.42 %
+4	Fujimura_NU_task2_1		7	59.9947 % ±0.0013	78.10 %	65.53 %	74.27 %	61.84 %	50.36 %	52.00 %	64.66 %	53.68 %	61.79 %	58.47 %	83.84 %	68.89 %	57.33 %	57.05 %	41.64 %	51.89 %	67.08 %	48.63 %	72.48 %	56.79 %	77.74 %	57.21 %	53.60 %	52.05 %	72.86 %	60.58 %	66.99 %	54.47 %	92.52 %	82.58 %
+5	Jiang_THUEE_task2_2		10	59.7933 % ±0.0014	94.98 %	86.21 %	67.95 %	58.26 %	52.66 %	47.37 %	54.77 %	55.89 %	59.64 %	54.68 %	70.12 %	56.89 %	64.66 %	56.37 %	46.94 %	51.47 %	66.90 %	53.00 %	72.71 %	55.95 %	68.93 %	60.58 %	61.91 %	55.00 %	81.95 %	68.32 %	85.56 %	60.26 %	92.04 %	86.37 %
+6	Zheng_SJTU-AITHU_task2_2		11	59.4997 % ±0.0013	94.60 %	85.58 %	68.09 %	58.95 %	52.27 %	47.58 %	56.31 %	55.32 %	58.22 %	54.37 %	67.21 %	53.21 %	64.23 %	56.00 %	47.46 %	52.95 %	66.15 %	53.16 %	73.63 %	57.63 %	67.60 %	58.79 %	61.96 %	55.89 %	82.57 %	67.53 %	84.90 %	59.95 %	90.82 %	84.11 %
+7	Guan_HEU_task2_1		22	58.2534 % ±0.0012	70.81 %	59.53 %	55.51 %	53.63 %	46.55 %	49.58 %	49.38 %	50.74 %	61.83 %	56.11 %	89.98 %	77.26 %	62.19 %	61.79 %	55.60 %	51.89 %	72.19 %	54.65 %	75.44 %	57.42 %	64.71 %	61.51 %	56.81 %	53.06 %	70.24 %	57.79 %	67.58 %	53.80 %	73.35 %	65.50 %
+8	Ozeki_MELCO_task2_1		23	58.2336 % ±0.0012	86.35 %	74.79 %	62.04 %	55.79 %	46.36 %	51.05 %	56.50 %	50.63 %	62.40 %	55.63 %	52.30 %	49.42 %	64.14 %	56.89 %	62.21 %	55.11 %	58.16 %	51.52 %	71.56 %	49.68 %	56.63 %	53.10 %	54.53 %	53.73 %	61.90 %	56.94 %	73.65 %	59.52 %	82.78 %	73.26 %
+9	Zhou_XAUAT_task2_1		24	58.1881 % ±0.0013	90.58 %	79.16 %	55.62 %	50.63 %	55.14 %	51.84 %	62.03 %	55.32 %	62.74 %	54.05 %	52.52 %	51.42 %	61.85 %	53.58 %	51.29 %	54.79 %	63.90 %	53.58 %	71.25 %	52.89 %	63.25 %	59.11 %	63.60 %	61.32 %	73.87 %	57.00 %	63.82 %	52.16 %	79.53 %	68.16 %
+10	Huang_XJU_task2_1		25	58.1405 % ±0.0012	74.01 %	53.63 %	57.15 %	59.37 %	46.98 %	49.21 %	65.68 %	52.79 %	52.08 %	50.42 %	82.14 %	69.32 %	61.78 %	57.68 %	54.54 %	51.00 %	66.22 %	53.63 %	72.08 %	56.16 %	75.86 %	64.95 %	59.20 %	50.58 %	72.02 %	58.32 %	65.55 %	54.21 %	76.20 %	74.74 %
