@@ -1,0 +1,189 @@
+import subprocess
+import sys
+import tqdm
+import os
+import csv
+import time
+import signal
+import logging
+from datetime import datetime
+import argparse
+from multiprocessing import Process, Queue
+import torch
+from collections import deque
+
+# Configure logging
+log_file = f'/home/kuhn.xia/tmp/gpu_monitor/gpu_monitor_{os.uname()[1]}.log'
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(log_file),
+        logging.StreamHandler()
+    ]
+)
+
+def get_gpu_utilization_and_power():
+    """Get GPU utilization and power consumption information using nvidia-smi."""
+    result = subprocess.run(['nvidia-smi', '--query-gpu=utilization.gpu,power.draw', '--format=csv'],
+                            capture_output=True, text=True)
+    
+    # Parse the output
+    lines = result.stdout.strip().split('\n')
+    gpu_info = {}
+    reader = csv.reader(lines[1:], skipinitialspace=True)
+    
+    for idx, row in enumerate(reader):
+        utilization, power = row
+        gpu_info[f'gpu_{idx+1}'] = {
+            'utilization': int(utilization.replace('%', '')),
+            'power': float(power.replace('W', '').strip())
+        }
+    
+    return gpu_info
+
+def monitor_process(queues, num_gpus):
+    """Independent process to monitor GPU metrics and send signals to worker processes."""
+    # Sliding time window for GPU statistics (e.g., 5 seconds)
+    time_window = 5
+    utilization_history = deque(maxlen=time_window)
+    power_history = deque(maxlen=time_window)
+    maintain_start_time = None  # Track when the "maintain" state started
+    threshold_met = False
+    last_signal = None
+    
+    while True:
+        # Get GPU utilization and power information
+        gpu_info = get_gpu_utilization_and_power()
+        
+        # Calculate average utilization and power across all GPUs
+        total_utilization = sum(info['utilization'] for info in gpu_info.values())
+        total_power = sum(info['power'] for info in gpu_info.values())
+        avg_utilization = total_utilization / num_gpus
+        avg_power = total_power / num_gpus
+        
+        # Add current metrics to the sliding window
+        utilization_history.append(avg_utilization)
+        power_history.append(avg_power)
+        
+        # Calculate smoothed averages over the sliding window
+        smoothed_utilization = sum(utilization_history) / len(utilization_history)
+        smoothed_power = sum(power_history) / len(power_history)
+        
+        # Decide whether to increase, maintain, or exit
+        if smoothed_utilization <= 20 or smoothed_power < 100:
+            signal = "increase"
+        elif not threshold_met: # first time
+            threshold_met = True
+            maintain_start_time = time.time()
+            signal = "maintain"
+        else: # after first time
+            # print remaining time and flush
+            remaining_time = 300 - (time.time() - maintain_start_time)
+            if remaining_time <= 0:  
+                signal = "exit"
+            else:
+                signal = "maintain"
+        
+        # Send the signal to each worker process's dedicated queue
+        for queue in queues:
+            queue.put(signal)
+        
+        # Log the decision
+        if signal != last_signal:
+            logging.info(f"Monitor Decision: {signal} (Smoothed Utilization: {smoothed_utilization}%, Smoothed Power: {smoothed_power} W)")
+            last_signal = signal
+        
+        # Wait for a short time before the next calculation
+        time.sleep(1)
+
+def occupy_gpu(gpu_id, queue):
+    """Worker process to occupy the GPU based on signals from the monitor process."""
+    device = torch.device(f'cuda:{gpu_id}')
+    
+    # Initialize variables for computational complexity
+    matrix_size = 128  # Start with a small matrix size
+    increment = 16     # Increase matrix size by this amount
+    
+    while True:
+        # Check for signals from the monitor process
+        if not queue.empty():
+            signal = queue.get()
+            
+            if signal == "increase":
+                # Increase computational complexity
+                matrix_size += increment
+                # print(f"Increasing computational complexity on GPU {gpu_id} to {matrix_size}.")
+            elif signal == "exit":
+                # print(f"Exiting GPU {gpu_id}.")
+                break
+        
+        # Perform matrix multiplications in a loop to keep the GPU busy
+        start_time = time.time()  # Start the timer
+        for _ in range(600):  # each step 0.17 sec; 60 * 0.17 = 10 sec
+            # Create smaller matrices for multiplication
+            matrix_a = torch.randn(matrix_size, matrix_size, device=device)
+            matrix_b = torch.randn(matrix_size, matrix_size, device=device)
+            
+            # Perform matrix multiplication
+            result = torch.matmul(matrix_a, matrix_b)
+            
+            # Perform element-wise operations on the result to increase computational load
+            result = result * torch.sin(result) + torch.cos(result)
+        
+        end_time = time.time()  # End the timer
+        
+        # Wait for 1 second before the next iteration
+        # time.sleep(1)
+
+def main(num_gpus):
+    """Main function to monitor and occupy GPUs."""
+    round = 0
+    while True:
+        round += 1
+        logging.info("--------------------------------------------------")
+        logging.info(f"Round {round} start gpu monitor...")
+        gpu_info = get_gpu_utilization_and_power()
+        total_utilization = sum(info['utilization'] for info in gpu_info.values())
+        total_power = sum(info['power'] for info in gpu_info.values())
+        avg_utilization = total_utilization / num_gpus
+        avg_power = total_power / num_gpus
+        
+        if avg_utilization >= 20 or avg_power >= 100:
+            logging.info("GPU utilization or power exceeds threshold. Skipping occupation and waiting for 25 minutes...")
+            time.sleep(25 * 60)  # Wait for 25 minutes
+            continue 
+
+        logging.info("GPU utilization or power is within threshold. Starting occupation...")
+        # Create a dedicated queue for each worker process
+        queues = [Queue() for _ in range(num_gpus)]
+        
+        # Start the independent monitor process
+        monitor = Process(target=monitor_process, args=(queues, num_gpus))
+        monitor.start()
+        
+        # Start the worker processes
+        workers = []
+        for gpu_id in range(num_gpus):
+            worker = Process(target=occupy_gpu, args=(gpu_id, queues[gpu_id]))
+            workers.append(worker)
+            worker.start()
+        
+        # Wait for all worker processes to complete
+        for worker in workers:
+            worker.join()
+        
+        # Terminate the monitor process
+        monitor.terminate()
+        monitor.join()
+        
+        # Wait for 25 minutes before the next check
+        logging.info("Waiting for 25 minutes before the next check...")
+        time.sleep(25 * 60)
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Monitor and occupy GPU resources.")
+    parser.add_argument('num_gpus', type=int, help="Number of GPUs to occupy")
+    args = parser.parse_args()
+    
+    main(args.num_gpus)
