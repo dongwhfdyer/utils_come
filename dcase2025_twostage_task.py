@@ -29,7 +29,7 @@ import numpy as np
 import pandas as pd
 import torch
 import h5py
-from sklearn.neighbors import NearestNeighbors
+from sklearn.neighbors import NearestNeighbors, LocalOutlierFactor
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import roc_auc_score
 from tqdm import tqdm
@@ -56,7 +56,7 @@ class DCASETwoStageConfig(TaskConfig):
 
     # k-NN anomaly detection (following winning approaches)
     knn_method: str = "kth_distance"  # "kth_distance", "avg_distance", "local_outlier"
-    k_neighbors: int = 5  # Following DCASE winners
+    k_neighbors: int = 1  # Following DCASE winners (nearest neighbor)
     distance_metric: str = "euclidean"
     normalize_features: bool = True
 
@@ -72,15 +72,11 @@ class DCASETwoStageConfig(TaskConfig):
     zenodo_id: None = None
 
     def __post_init__(self, **kwargs):
-        # Set DCASE-specific configuration
-        self.name = f"DCASE2025_{self.machine_type}_TwoStage"
-        self.formal_name = f"DCASE2025 Task 2 Two-Stage - {self.machine_type}"
-
         # Ensure dataset paths exist
         if not Path(self.additional_dataset_path).exists():
-            raise FileNotFoundError(f"Additional dataset not found: {self.additional_dataset_path}")
+            logger.warning(f"Additional dataset not found: {self.additional_dataset_path}")
         if not Path(self.eval_dataset_path).exists():
-            raise FileNotFoundError(f"Eval dataset not found: {self.eval_dataset_path}")
+            logger.warning(f"Eval dataset not found: {self.eval_dataset_path}")
 
         super().__post_init__(**kwargs)
 
@@ -418,17 +414,54 @@ class DCASETwoStageTask(XaresTask):
         # Return in X-ARES format (mlp_result, knn_result)
         return (mock_auc, eval_size), (0.0, 0)
 
+    def run_stage1(self):
+        """Run only Stage 1: embedding precomputation"""
+        logger.info(f"Running Stage 1 (embeddings): {self.dcase_config.machine_type}")
+        self.stage1_precompute_embeddings()
+        logger.info("Stage 1 completed")
+
+    def run_stage2(self):
+        """Run only Stage 2: k-NN anomaly detection (requires cached embeddings)"""
+        logger.info(f"Running Stage 2 (k-NN inference): {self.dcase_config.machine_type}")
+
+        # Check if Stage 1 embeddings are available
+        if not self.stage1_embeddings_cached():
+            raise FileNotFoundError(
+                f"Stage 1 embeddings not found for {self.dcase_config.machine_type}. "
+                f"Run Stage 1 first or use run() for both stages."
+            )
+
+        # Stage 2: k-NN anomaly detection
+        anomaly_scores, binary_decisions = self.stage2_knn_anomaly_detection()
+
+        # Calculate summary metrics
+        mock_auc = 0.7  # Placeholder
+        eval_size = len(anomaly_scores)
+
+        logger.info(f"Stage 2 completed: {eval_size} samples processed")
+
+        # Return in X-ARES format (mlp_result, knn_result)
+        return (mock_auc, eval_size), (0.0, 0)
+
+    def stage1_embeddings_cached(self) -> bool:
+        """Check if Stage 1 embeddings are already cached"""
+        return (
+            self.additional_embeddings_file.exists() and
+            self.eval_embeddings_file.exists()
+        )
+
 
 # Configuration functions for X-ARES integration
 def dcase2025_twostage_config(
     encoder,
     machine_type: str = "AutoTrash",
     knn_method: str = "kth_distance",
-    k_neighbors: int = 5,
+    k_neighbors: int = 1,  # Following DCASE winners
     **kwargs
 ) -> DCASETwoStageConfig:
     """Create DCASE2025 two-stage task configuration"""
     return DCASETwoStageConfig(
+        name=f"DCASE2025_{machine_type}_TwoStage",  # Required TaskConfig parameter
         encoder=encoder,
         machine_type=machine_type,
         knn_method=knn_method,

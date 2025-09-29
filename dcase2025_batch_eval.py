@@ -131,6 +131,7 @@ def evaluate_single_encoder_machine(encoder_path: str, machine_type: str, k_neig
             'encoder_name': 'unknown',
             'machine_type': machine_type,
             'k_neighbors': k_neighbors,
+            'stage': stage,
             'mlp_score': 0.0,
             'eval_size': 0,
             'status': f'failed: {str(e)}'
@@ -141,6 +142,7 @@ def run_dcase_batch_evaluation(
     models: List[str],
     machine_types: List[str] = None,
     k_neighbors: int = 1,
+    stage: str = "both"
 ) -> pd.DataFrame:
     """
     Run batch evaluation on multiple encoders and machine types
@@ -175,7 +177,8 @@ def run_dcase_batch_evaluation(
             result = evaluate_single_encoder_machine(
                 encoder_path,
                 machine_type,
-                k_neighbors
+                k_neighbors,
+                stage
             )
             results.append(result)
 
@@ -221,6 +224,7 @@ def main():
     parser.add_argument("--models", nargs='*', default=None, help="List of encoder file paths relative to xares/")
     parser.add_argument("--machines", nargs='*', default=None, help="List of machine types to evaluate")
     parser.add_argument("--k", type=int, default=1, help="k neighbors for k-NN (default: 1)")
+    parser.add_argument("--stage", choices=["1", "2", "both"], default="both", help="Which stage to run: 1 (embeddings), 2 (k-NN), both (default)")
     # No summary CSV output; flags removed
     args = parser.parse_args()
 
@@ -246,6 +250,7 @@ def main():
         models=selected_models,
         machine_types=selected_machines,
         k_neighbors=args.k,
+        stage=args.stage
     )
 
     # Display results
