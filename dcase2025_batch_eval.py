@@ -38,6 +38,7 @@ from loguru import logger
 sys.path.append('/data1/repos/EAT_projs/xares-main/src')
 
 from dcase_unsupervised.dcase2025_twostage_task import dcase2025_twostage_config, DCASETwoStageTask
+from dcase_unsupervised.dcase2025_evaluator import DCASE2025Evaluator
 
 
 def load_encoder_from_path(encoder_path: str):
@@ -234,7 +235,9 @@ def main():
     parser.add_argument("--machines", nargs='*', default=None, help="List of machine types to evaluate")
     parser.add_argument("--k", type=int, default=1, help="k neighbors for k-NN (default: 1)")
     parser.add_argument("--stage", choices=["1", "2", "both"], default="both", help="Which stage to run: 1 (embeddings), 2 (k-NN), both (default)")
-    parser.add_argument("--score-norm", choices=["sigmoid", "minmax", "zscore_sigmoid", "percentile"], default="zscore_sigmoid", help="Score normalization method (default: zscore_sigmoid)")
+    parser.add_argument("--score-norm", choices=["sigmoid", "minmax", "zscore_sigmoid", "percentile"], default="sigmoid", help="Score normalization method (default: sigmoid)")
+    parser.add_argument("--evaluate", action="store_true", help="Run DCASE2025 official evaluator after CSV generation")
+    parser.add_argument("--evaluator-root", type=str, default="/data/repos/EAT_projs/datasets/dcase_eval_data/dcase2025_task2_evaluator-main", help="Path to DCASE evaluator root")
     # No summary CSV output; flags removed
     args = parser.parse_args()
 
@@ -269,8 +272,77 @@ def main():
     print("=" * 50)
     print(df.to_string(index=False))
 
-    print("\nSummary CSV generation disabled.")
-    print("Check the X-ARES env/ directories for DCASE-format output files.")
+    # Run official DCASE evaluator if requested
+    if args.evaluate and args.stage in ["2", "both"]:
+        print("\n" + "=" * 50)
+        print("Running DCASE2025 Official Evaluator")
+        print("=" * 50)
+
+        try:
+            evaluator = DCASE2025Evaluator(evaluator_root=args.evaluator_root)
+
+            # Collect all unique model names and their teams directories
+            eval_results = []
+
+            for result in df.to_dict('records'):
+                if result['status'] != 'success':
+                    continue
+
+                encoder_path = result['encoder_path']
+                model_name = Path(encoder_path).stem
+                machine_type = result['machine_type']
+
+                # Construct path to teams directory
+                # Structure: env/model_name/DCASE2025_{machine_type}_TwoStage/stage2_results/
+                env_root = Path("env")  # Adjust if different
+                teams_dir = env_root / model_name / f"DCASE2025_{machine_type}_TwoStage" / "stage2_results"
+
+                if not teams_dir.exists():
+                    logger.warning(f"Teams directory not found: {teams_dir}")
+                    continue
+
+                logger.info(f"Evaluating: {model_name} on {machine_type}")
+
+                try:
+                    metrics, results_csv = evaluator.evaluate_model(
+                        teams_dir=teams_dir,
+                        model_name=f"{model_name}_{machine_type}"
+                    )
+
+                    eval_results.append({
+                        'model': model_name,
+                        'machine': machine_type,
+                        'official_score': metrics.get('official_score', 0.0),
+                        'hmean_source': metrics.get('harmonic_mean_source', 0.0),
+                        'hmean_target': metrics.get('harmonic_mean_target', 0.0),
+                        'results_csv': str(results_csv)
+                    })
+
+                    logger.info(f"  Official Score: {metrics.get('official_score', 0.0):.4f}")
+
+                except Exception as e:
+                    logger.error(f"Evaluation failed for {model_name}/{machine_type}: {e}")
+                    continue
+
+            # Display evaluation results
+            if eval_results:
+                print("\nDCASE2025 Official Evaluation Results:")
+                print("=" * 50)
+                eval_df = pd.DataFrame(eval_results)
+                print(eval_df.to_string(index=False))
+                print("\nDetailed results saved in env/*/evaluation_results/")
+            else:
+                print("\nNo successful evaluations to display.")
+
+        except Exception as e:
+            logger.error(f"Failed to initialize evaluator: {e}")
+            print(f"\nEvaluator initialization failed. Check that evaluator_root exists: {args.evaluator_root}")
+
+    elif args.evaluate and args.stage == "1":
+        print("\nSkipping evaluation (Stage 1 only generates embeddings, no CSV files)")
+
+    print("\nBatch evaluation completed!")
+    print("CSV files location: env/<model_name>/DCASE2025_<machine>_TwoStage/stage2_results/teams/baseline/")
 
 
 if __name__ == "__main__":
