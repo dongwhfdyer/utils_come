@@ -531,7 +531,7 @@ def dcase2025_twostage_config(
     machine_type: str = "AutoTrash",
     knn_method: str = "kth_distance",
     k_neighbors: int = 1,  # Following DCASE winners
-    score_normalization_method: str = "sigmoid",  # NEW: Proper score normalization
+    score_normalization_method: str = "zscore_sigmoid",  # NEW: Proper score normalization
     model_name: str = None,  # NEW: Model name from file path
     **kwargs
 ) -> DCASETwoStageConfig:
