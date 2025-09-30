@@ -37,12 +37,15 @@ from loguru import logger
 # Add X-ARES to path (from wowscripts/dcase2025_unsuper location)
 sys.path.append('/Users/kuhn/Documents/code/auto_repo/xares/src')
 
-from dcase_unsupervised import dcase2025_twostage_config, DCASETwoStageTask
+from dcase_unsupervised.dcase2025_twostage_task import dcase2025_twostage_config, DCASETwoStageTask
 
 
 def load_encoder_from_path(encoder_path: str):
     """Load encoder class from file path"""
-    encoder_file = Path(f"/Users/kuhn/Documents/code/auto_repo/xares/{encoder_path}")
+    # Use relative path from current script location
+    script_dir = Path(__file__).parent
+    xares_root = script_dir.parent.parent  # Go up to xares root
+    encoder_file = xares_root / encoder_path
 
     if not encoder_file.exists():
         raise FileNotFoundError(f"Encoder file not found: {encoder_file}")
@@ -76,19 +79,20 @@ def load_encoder_from_path(encoder_path: str):
     return encoder
 
 
-def evaluate_single_encoder_machine(encoder_path: str, machine_type: str, k_neighbors: int = 1, stage: str = "both") -> Dict[str, Any]:
+def evaluate_single_encoder_machine(encoder_path: str, machine_type: str, k_neighbors: int = 1, stage: str = "both", score_norm: str = "sigmoid") -> Dict[str, Any]:
     """Evaluate single encoder on single machine type with stage control"""
 
     try:
         # Load encoder
         encoder = load_encoder_from_path(encoder_path)
 
-        # Create config with k=1 (following DCASE winners)
+        # Create config with k=1 (following DCASE winners) and proper score normalization
         config = dcase2025_twostage_config(
             encoder=encoder,
             machine_type=machine_type,
             knn_method="kth_distance",  # Distance to nearest neighbor
             k_neighbors=k_neighbors,
+            score_normalization_method=score_norm,  # NEW: Proper score normalization
             threshold_method="percentile",
             threshold_percentile=50.0
         )
@@ -119,6 +123,7 @@ def evaluate_single_encoder_machine(encoder_path: str, machine_type: str, k_neig
             'machine_type': machine_type,
             'k_neighbors': k_neighbors,
             'stage': stage,
+            'score_norm': score_norm,
             'mlp_score': results[0][0] if results[0] else 0.0,
             'eval_size': results[0][1] if results[0] else 0,
             'status': 'success'
@@ -132,6 +137,7 @@ def evaluate_single_encoder_machine(encoder_path: str, machine_type: str, k_neig
             'machine_type': machine_type,
             'k_neighbors': k_neighbors,
             'stage': stage,
+            'score_norm': score_norm,
             'mlp_score': 0.0,
             'eval_size': 0,
             'status': f'failed: {str(e)}'
@@ -142,7 +148,8 @@ def run_dcase_batch_evaluation(
     models: List[str],
     machine_types: List[str] = None,
     k_neighbors: int = 1,
-    stage: str = "both"
+    stage: str = "both",
+    score_norm: str = "sigmoid"
 ) -> pd.DataFrame:
     """
     Run batch evaluation on multiple encoders and machine types
@@ -178,7 +185,8 @@ def run_dcase_batch_evaluation(
                 encoder_path,
                 machine_type,
                 k_neighbors,
-                stage
+                stage,
+                score_norm
             )
             results.append(result)
 
@@ -225,6 +233,7 @@ def main():
     parser.add_argument("--machines", nargs='*', default=None, help="List of machine types to evaluate")
     parser.add_argument("--k", type=int, default=1, help="k neighbors for k-NN (default: 1)")
     parser.add_argument("--stage", choices=["1", "2", "both"], default="both", help="Which stage to run: 1 (embeddings), 2 (k-NN), both (default)")
+    parser.add_argument("--score-norm", choices=["sigmoid", "minmax", "zscore_sigmoid", "percentile"], default="zscore_sigmoid", help="Score normalization method (default: zscore_sigmoid)")
     # No summary CSV output; flags removed
     args = parser.parse_args()
 
@@ -250,7 +259,8 @@ def main():
         models=selected_models,
         machine_types=selected_machines,
         k_neighbors=args.k,
-        stage=args.stage
+        stage=args.stage,
+        score_norm=args.score_norm
     )
 
     # Display results

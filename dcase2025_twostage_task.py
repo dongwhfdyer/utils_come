@@ -60,6 +60,9 @@ class DCASETwoStageConfig(TaskConfig):
     distance_metric: str = "euclidean"
     normalize_features: bool = True
 
+    # Score normalization (CRITICAL FIX for proper anomaly probabilities)
+    score_normalization_method: str = "zscore_sigmoid"  # "sigmoid", "minmax", "zscore_sigmoid", "percentile"
+
     # Threshold determination
     threshold_method: str = "percentile"  # "percentile", "median", "otsu"
     threshold_percentile: float = 50.0  # For percentile method
@@ -341,24 +344,78 @@ class DCASETwoStageTask(XaresTask):
         if self.dcase_config.knn_method == "kth_distance":
             # Distance to k-th nearest neighbor (most common in DCASE winners)
             distances, _ = self.knn_detector.kneighbors(query_embeddings)
-            anomaly_scores = distances[:, -1]  # k-th neighbor distance
-
+            raw_distances = distances[:, -1]  # k-th neighbor distance
         elif self.dcase_config.knn_method == "avg_distance":
             # Average distance to k neighbors
             distances, _ = self.knn_detector.kneighbors(query_embeddings)
-            anomaly_scores = np.mean(distances, axis=1)
-
+            raw_distances = np.mean(distances, axis=1)
         elif self.dcase_config.knn_method == "local_outlier":
             # Local Outlier Factor (more sophisticated)
-            from sklearn.neighbors import LocalOutlierFactor
             lof = LocalOutlierFactor(n_neighbors=self.dcase_config.k_neighbors, novelty=True)
             lof.fit(self.normal_embeddings)
-            anomaly_scores = -lof.decision_function(query_embeddings)  # Higher = more anomalous
-
+            raw_distances = -lof.decision_function(query_embeddings)  # Higher = more anomalous
         else:
             raise ValueError(f"Unknown k-NN method: {self.dcase_config.knn_method}")
 
+        # **CRITICAL FIX**: Convert raw distances to anomaly probabilities (0-1 range)
+        anomaly_scores = self._normalize_anomaly_scores(raw_distances)
+
         return anomaly_scores
+
+    def _normalize_anomaly_scores(self, raw_distances: np.ndarray) -> np.ndarray:
+        """
+        Convert raw k-NN distances to anomaly probabilities (0-1 range)
+        Following DCASE winners' normalization approaches
+        """
+
+        if self.dcase_config.score_normalization_method == "sigmoid":
+            # Sigmoid normalization: converts distances to probabilities
+            # Higher distance = higher anomaly probability
+            # Using adaptive scaling based on distance statistics
+            median_dist = np.median(raw_distances)
+            mad = np.median(np.abs(raw_distances - median_dist))  # Median Absolute Deviation
+            scale = mad if mad > 0 else 1.0
+
+            # Sigmoid with adaptive scaling
+            normalized_scores = 1 / (1 + np.exp(-(raw_distances - median_dist) / scale))
+
+        elif self.dcase_config.score_normalization_method == "minmax":
+            # Min-Max normalization to [0,1] range
+            min_dist = np.min(raw_distances)
+            max_dist = np.max(raw_distances)
+            if max_dist > min_dist:
+                normalized_scores = (raw_distances - min_dist) / (max_dist - min_dist)
+            else:
+                normalized_scores = np.zeros_like(raw_distances)
+
+        elif self.dcase_config.score_normalization_method == "zscore_sigmoid":
+            # Z-score + sigmoid (following Saengthong et al.)
+            mean_dist = np.mean(raw_distances)
+            std_dist = np.std(raw_distances)
+            if std_dist > 0:
+                z_scores = (raw_distances - mean_dist) / std_dist
+                normalized_scores = 1 / (1 + np.exp(-z_scores))  # Sigmoid of z-scores
+            else:
+                normalized_scores = np.full_like(raw_distances, 0.5)
+
+        elif self.dcase_config.score_normalization_method == "percentile":
+            # Percentile-based normalization (robust to outliers)
+            percentile_scores = np.zeros_like(raw_distances)
+            for i, dist in enumerate(raw_distances):
+                percentile_scores[i] = np.mean(raw_distances <= dist)
+            normalized_scores = percentile_scores
+
+        else:
+            raise ValueError(f"Unknown score normalization method: {self.dcase_config.score_normalization_method}")
+
+        # Ensure scores are in [0,1] range
+        normalized_scores = np.clip(normalized_scores, 0.0, 1.0)
+
+        logger.info(f"Score normalization ({self.dcase_config.score_normalization_method}):")
+        logger.info(f"  Raw distances: [{np.min(raw_distances):.4f}, {np.max(raw_distances):.4f}]")
+        logger.info(f"  Normalized scores: [{np.min(normalized_scores):.4f}, {np.max(normalized_scores):.4f}]")
+
+        return normalized_scores
 
     def _determine_threshold(self, anomaly_scores: np.ndarray) -> float:
         """Determine threshold for binary anomaly decisions"""
@@ -457,15 +514,16 @@ def dcase2025_twostage_config(
     machine_type: str = "AutoTrash",
     knn_method: str = "kth_distance",
     k_neighbors: int = 1,  # Following DCASE winners
+    score_normalization_method: str = "zscore_sigmoid",  # NEW: Proper score normalization
     **kwargs
 ) -> DCASETwoStageConfig:
     """Create DCASE2025 two-stage task configuration"""
     return DCASETwoStageConfig(
-        name=f"DCASE2025_{machine_type}_TwoStage",  # Required TaskConfig parameter
         encoder=encoder,
         machine_type=machine_type,
         knn_method=knn_method,
         k_neighbors=k_neighbors,
+        score_normalization_method=score_normalization_method,
         batch_size_train=16,  # For embedding extraction
         eval_weight=200,      # 200 test files per machine type
         **kwargs
@@ -475,7 +533,7 @@ def dcase2025_twostage_config(
 def create_all_dcase_twostage_configs(
     encoder,
     knn_method: str = "kth_distance",
-    k_neighbors: int = 5,
+    k_neighbors: int = 1,  # Consistent with DCASE winners
     **kwargs
 ) -> List[DCASETwoStageConfig]:
     """Create two-stage configs for all DCASE2025 machine types"""
