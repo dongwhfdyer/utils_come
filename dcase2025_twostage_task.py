@@ -45,6 +45,7 @@ class DCASETwoStageConfig(TaskConfig):
 
     # DCASE-specific settings
     machine_type: str = "AutoTrash"
+    model_name: str = "unknown_encoder"  # NEW: Model name from file path (e.g., "dasheng_encoder")
 
     # Dataset paths (from local_dataset_position.txt)
     additional_dataset_path: str = "/Users/kuhn/Desktop/15392814additional_datasets"
@@ -103,14 +104,23 @@ class DCASETwoStageTask(XaresTask):
         super().__init__(config)
         self.dcase_config = config
 
-        # Two-stage directories
-        self.stage1_embeddings_dir = self.env_dir / "stage1_embeddings" / self.encoder_name
-        self.stage2_results_dir = self.env_dir / "stage2_results" / self.encoder_name
+        # NEW STRUCTURE: model_name / machine_type / stage_dirs
+        # Example: dasheng_encoder/DCASE2025_AutoTrash_TwoStage/stage1_embeddings/
+        model_root = Path(config.env_root) / config.model_name if config.env_root else Path("env") / config.model_name
+        model_root.mkdir(parents=True, exist_ok=True)
+
+        # Machine-specific directories under model
+        machine_dir = model_root / f"DCASE2025_{self.dcase_config.machine_type}_TwoStage"
+        machine_dir.mkdir(parents=True, exist_ok=True)
+
+        # Two-stage directories under machine
+        self.stage1_embeddings_dir = machine_dir / "stage1_embeddings"
+        self.stage2_results_dir = machine_dir / "stage2_results"
 
         for dir_path in [self.stage1_embeddings_dir, self.stage2_results_dir]:
             dir_path.mkdir(parents=True, exist_ok=True)
 
-        # Embedding cache files
+        # Embedding cache files (no encoder_name subfolder needed)
         self.additional_embeddings_file = self.stage1_embeddings_dir / f"additional_{self.dcase_config.machine_type}.h5"
         self.eval_embeddings_file = self.stage1_embeddings_dir / f"eval_{self.dcase_config.machine_type}.h5"
 
@@ -432,18 +442,21 @@ class DCASETwoStageTask(XaresTask):
         return threshold
 
     def _save_dcase_results(self, filenames: List[str], anomaly_scores: np.ndarray, binary_decisions: np.ndarray):
-        """Save results in DCASE2025 official format"""
+        """Save results in DCASE2025 official format for evaluator"""
 
         # Create teams directory structure for DCASE evaluator
+        # New structure: model_name/stage2_results/teams/baseline/
         teams_dir = self.stage2_results_dir / "teams" / "baseline"
         teams_dir.mkdir(parents=True, exist_ok=True)
 
         # Anomaly scores CSV (filename,score - no header)
+        # Format: section_00_0000.wav,0.1234
         score_data = [[fname, f"{score:.6f}"] for fname, score in zip(filenames, anomaly_scores)]
         score_csv = teams_dir / f"anomaly_score_{self.dcase_config.machine_type}_section_00_test.csv"
         pd.DataFrame(score_data).to_csv(score_csv, header=False, index=False)
 
         # Binary decisions CSV (filename,decision - no header)
+        # Format: section_00_0000.wav,0
         decision_data = [[fname, decision] for fname, decision in zip(filenames, binary_decisions)]
         decision_csv = teams_dir / f"decision_result_{self.dcase_config.machine_type}_section_00_test.csv"
         pd.DataFrame(decision_data).to_csv(decision_csv, header=False, index=False)
@@ -451,6 +464,10 @@ class DCASETwoStageTask(XaresTask):
         logger.info(f"DCASE results saved:")
         logger.info(f"  Anomaly scores: {score_csv}")
         logger.info(f"  Binary decisions: {decision_csv}")
+
+        # Store paths for later evaluation
+        self.last_score_csv = score_csv
+        self.last_decision_csv = decision_csv
 
     def run(self):
         """Run complete two-stage DCASE evaluation"""
@@ -514,13 +531,27 @@ def dcase2025_twostage_config(
     machine_type: str = "AutoTrash",
     knn_method: str = "kth_distance",
     k_neighbors: int = 1,  # Following DCASE winners
-    score_normalization_method: str = "zscore_sigmoid",  # NEW: Proper score normalization
+    score_normalization_method: str = "sigmoid",  # NEW: Proper score normalization
+    model_name: str = None,  # NEW: Model name from file path
     **kwargs
 ) -> DCASETwoStageConfig:
-    """Create DCASE2025 two-stage task configuration"""
+    """Create DCASE2025 two-stage task configuration
+
+    Args:
+        encoder: Audio encoder instance
+        machine_type: Machine type (e.g., "AutoTrash")
+        model_name: Model name extracted from file path (e.g., "dasheng_encoder")
+                   If None, uses encoder class name
+    """
+    # Use model_name if provided, otherwise fall back to encoder class name
+    if model_name is None:
+        model_name = encoder.__class__.__name__
+
     return DCASETwoStageConfig(
+        name=f"DCASE2025_{machine_type}_TwoStage",
         encoder=encoder,
         machine_type=machine_type,
+        model_name=model_name,
         knn_method=knn_method,
         k_neighbors=k_neighbors,
         score_normalization_method=score_normalization_method,
