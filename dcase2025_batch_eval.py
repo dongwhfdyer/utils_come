@@ -83,67 +83,54 @@ def load_encoder_from_path(encoder_path: str):
 def evaluate_single_encoder_machine(encoder_path: str, machine_type: str, k_neighbors: int = 1, stage: str = "both", score_norm: str = "sigmoid") -> Dict[str, Any]:
     """Evaluate single encoder on single machine type with stage control"""
 
-    try:
-        # Load encoder
-        encoder = load_encoder_from_path(encoder_path)
+    # Load encoder
+    encoder = load_encoder_from_path(encoder_path)
 
-        # Create config with k=1 (following DCASE winners) and proper score normalization
-        config = dcase2025_twostage_config(
-            encoder=encoder,
-            machine_type=machine_type,
-            knn_method="kth_distance",  # Distance to nearest neighbor
-            k_neighbors=k_neighbors,
-            score_normalization_method=score_norm,  # NEW: Proper score normalization
-            model_name=model_name,  # NEW: Model name from file path
-            threshold_method="percentile",
-            threshold_percentile=50.0
-        )
+    # Create config with k=1 (following DCASE winners) and proper score normalization
+    config = dcase2025_twostage_config(
+        encoder=encoder,
+        machine_type=machine_type,
+        knn_method="kth_distance",  # Distance to nearest neighbor
+        k_neighbors=k_neighbors,
+        score_normalization_method=score_norm,  # NEW: Proper score normalization
+        model_name=model_name,  # NEW: Model name from file path
+        threshold_method="percentile",
+        threshold_percentile=50.0
+    )
 
-        # Run evaluation based on stage
-        logger.info(f"Starting {stage} evaluation: {encoder.__class__.__name__} on {machine_type}")
-        task = DCASETwoStageTask(config)
+    # Run evaluation based on stage
+    logger.info(f"Starting {stage} evaluation: {encoder.__class__.__name__} on {machine_type}")
+    task = DCASETwoStageTask(config)
 
-        if stage == "1":
-            # Only Stage 1: embedding extraction
-            task.run_stage1()
-            results = [(0.0, 0)]  # No score from Stage 1 only
-            logger.info("Stage 1 (embeddings) completed")
-        elif stage == "2":
-            # Only Stage 2: k-NN inference (requires Stage 1 embeddings)
-            if not task.stage1_embeddings_cached():
-                raise FileNotFoundError(f"Stage 1 embeddings not found for {encoder.__class__.__name__} on {machine_type}. Run Stage 1 first.")
-            results = task.run_stage2()
-            logger.info("Stage 2 (k-NN inference) completed")
-        else:
-            # Both stages (default)
-            results = task.run()
-            logger.info("Both stages completed")
+    if stage == "1":
+        # Only Stage 1: embedding extraction
+        task.run_stage1()
+        results = [(0.0, 0)]  # No score from Stage 1 only
+        logger.info("Stage 1 (embeddings) completed")
+    elif stage == "2":
+        # Only Stage 2: k-NN inference (requires Stage 1 embeddings)
+        if not task.stage1_embeddings_cached():
+            raise FileNotFoundError(f"Stage 1 embeddings not found for {encoder.__class__.__name__} on {machine_type}. Run Stage 1 first.")
+        results = task.run_stage2()
+        logger.info("Stage 2 (k-NN inference) completed")
+    else:
+        # Both stages (default)
+        results = task.run()
+        logger.info("Both stages completed")
 
-        return {
-            'encoder_path': encoder_path,
-            'encoder_name': encoder.__class__.__name__,
-            'machine_type': machine_type,
-            'k_neighbors': k_neighbors,
-            'stage': stage,
-            'score_norm': score_norm,
-            'mlp_score': results[0][0] if results[0] else 0.0,
-            'eval_size': results[0][1] if results[0] else 0,
-            'status': 'success'
-        }
+    return {
+        'encoder_path': encoder_path,
+        'encoder_name': encoder.__class__.__name__,
+        'machine_type': machine_type,
+        'k_neighbors': k_neighbors,
+        'stage': stage,
+        'score_norm': score_norm,
+        'mlp_score': results[0][0] if results[0] else 0.0,
+        'eval_size': results[0][1] if results[0] else 0,
+        'status': 'success'
+    }
 
-    except Exception as e:
-        logger.error(f"Failed to evaluate {encoder_path} on {machine_type}: {e}")
-        return {
-            'encoder_path': encoder_path,
-            'encoder_name': 'unknown',
-            'machine_type': machine_type,
-            'k_neighbors': k_neighbors,
-            'stage': stage,
-            'score_norm': score_norm,
-            'mlp_score': 0.0,
-            'eval_size': 0,
-            'status': f'failed: {str(e)}'
-        }
+
 
 
 def run_dcase_batch_evaluation(
@@ -292,10 +279,10 @@ def main():
                 model_name = Path(encoder_path).stem
                 machine_type = result['machine_type']
 
-                # Construct path to teams directory
-                # Structure: env/model_name/DCASE2025_{machine_type}_TwoStage/stage2_results/
+                # Construct path to teams directory containing CSV files
+                # Structure: env/model_name/DCASE2025_{machine_type}_TwoStage/stage2_results/teams/baseline/
                 env_root = Path("env")  # Adjust if different
-                teams_dir = env_root / model_name / f"DCASE2025_{machine_type}_TwoStage" / "stage2_results"
+                teams_dir = env_root / model_name / f"DCASE2025_{machine_type}_TwoStage" / "stage2_results" / "teams" / "baseline"
 
                 if not teams_dir.exists():
                     logger.warning(f"Teams directory not found: {teams_dir}")

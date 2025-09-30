@@ -138,6 +138,7 @@ class DCASE2025Evaluator:
             "--teams_root_dir", str(teams_root_link),
             "--result_dir", str(output_dir),
             "--additional_result_dir", str(additional_output_dir),
+            "--dir_depth", "1",  # baseline is 1 level deep from teams_root_link
             "--out_all", "True"
         ]
 
