@@ -267,62 +267,96 @@ def main():
         print("\n" + "=" * 50)
         print("Running DCASE2025 Official Evaluator")
         print("=" * 50)
+        print("NOTE: Official evaluator requires ALL 8 machine types per model")
+        print()
 
         try:
-            # Collect all unique model-machine combinations
-            eval_results = []
+            # Group results by model (need all 8 machines per model)
+            from collections import defaultdict
+            model_results = defaultdict(list)
 
             for result in df.to_dict('records'):
                 if result['status'] != 'success':
                     continue
-
                 encoder_path = result['encoder_path']
                 model_name = Path(encoder_path).stem
-                machine_type = result['machine_type']
+                model_results[model_name].append(result)
 
-                # Construct path to stage2_results directory
-                # Structure: env/model_name/DCASE2025_{machine_type}_TwoStage/stage2_results/
-                env_root = Path("env")  # Adjust if different
-                stage2_results_dir = env_root / model_name / f"DCASE2025_{machine_type}_TwoStage" / "stage2_results"
+            eval_results = []
+            env_root = Path("env")
 
-                if not stage2_results_dir.exists():
-                    logger.warning(f"Stage2 results directory not found: {stage2_results_dir}")
+            for model_name, results in model_results.items():
+                logger.info(f"Preparing evaluation for model: {model_name}")
+
+                # Check if we have all 8 machines for this model
+                machines_found = {r['machine_type'] for r in results}
+                REQUIRED_MACHINES = {"AutoTrash", "BandSealer", "CoffeeGrinder", "HomeCamera",
+                                    "Polisher", "ScrewFeeder", "ToyPet", "ToyRCCar"}
+
+                missing = REQUIRED_MACHINES - machines_found
+                if missing:
+                    logger.warning(f"Model {model_name} is missing machines: {sorted(missing)}")
+                    logger.warning(f"Official evaluator requires ALL 8 machines. Skipping this model.")
                     continue
 
-                # Output directory for evaluation results
-                eval_output_dir = env_root / model_name / f"DCASE2025_{machine_type}_TwoStage" / "evaluation"
+                # Create unified results directory for all machines
+                unified_results_dir = env_root / model_name / "DCASE2025_Unified" / "stage2_results" / "teams" / "baseline"
+                unified_results_dir.mkdir(parents=True, exist_ok=True)
 
-                logger.info(f"Evaluating: {model_name} on {machine_type}")
+                # Copy/symlink all CSV files from individual machine folders to unified folder
+                logger.info(f"Collecting CSV files for {model_name} from all 8 machines...")
+
+                for result in results:
+                    machine_type = result['machine_type']
+                    source_dir = env_root / model_name / f"DCASE2025_{machine_type}_TwoStage" / "stage2_results" / "teams" / "baseline"
+
+                    if not source_dir.exists():
+                        logger.error(f"Source directory not found: {source_dir}")
+                        continue
+
+                    # Copy all CSV files for this machine
+                    for csv_file in source_dir.glob(f"*{machine_type}*.csv"):
+                        dest_file = unified_results_dir / csv_file.name
+                        if not dest_file.exists():
+                            import shutil
+                            shutil.copy(csv_file, dest_file)
+                            logger.debug(f"  Copied: {csv_file.name}")
+
+                # Verify we have all required CSV files
+                csv_count = len(list(unified_results_dir.glob("*.csv")))
+                logger.info(f"Total CSV files collected: {csv_count}")
+
+                # Run evaluation on unified directory
+                eval_output_dir = env_root / model_name / "DCASE2025_Unified" / "evaluation"
+
+                logger.info(f"Evaluating {model_name} with all 8 machines...")
 
                 try:
-                    # Use simplified evaluator
                     metrics, results_csv = evaluate_dcase2025(
-                        stage2_results_dir=str(stage2_results_dir),
+                        stage2_results_dir=str(unified_results_dir.parent.parent),  # Points to stage2_results/
                         output_dir=str(eval_output_dir),
                         evaluator_root=args.evaluator_root
                     )
 
-                    # Check if metrics are valid
                     official_score = metrics.get('official_score', 0.0)
 
-                    # Warn if score is suspiciously low or missing
                     if official_score < 0.01:
-                        logger.warning(f"Official score for {model_name}/{machine_type} is very low or zero: {official_score:.6f}")
+                        logger.warning(f"Official score for {model_name} is very low or zero: {official_score:.6f}")
                         logger.warning("This may indicate: missing files, data mismatch, or evaluation failure")
 
                     eval_results.append({
                         'model': model_name,
-                        'machine': machine_type,
                         'official_score': official_score,
                         'hmean_source': metrics.get('harmonic_mean_source', 0.0),
                         'hmean_target': metrics.get('harmonic_mean_target', 0.0),
+                        'arithmetic_mean': metrics.get('arithmetic_mean', 0.0),
                         'results_csv': str(results_csv) if results_csv else 'N/A'
                     })
 
-                    logger.info(f"  Official Score: {official_score:.4f}")
+                    logger.info(f"  ✓ {model_name} - Official Score: {official_score:.4f}")
 
                 except Exception as e:
-                    logger.error(f"Evaluation failed for {model_name}/{machine_type}: {e}")
+                    logger.error(f"Evaluation failed for {model_name}: {e}")
                     continue
 
             # Display evaluation results
@@ -331,9 +365,10 @@ def main():
                 print("=" * 50)
                 eval_df = pd.DataFrame(eval_results)
                 print(eval_df.to_string(index=False))
-                print("\nDetailed results saved in env/*/DCASE2025_*/evaluation/")
+                print("\nDetailed results saved in env/*/DCASE2025_Unified/evaluation/")
             else:
                 print("\nNo successful evaluations to display.")
+                print("Make sure you have evaluated ALL 8 machines for at least one model.")
 
         except Exception as e:
             logger.error(f"Failed to run evaluator: {e}")

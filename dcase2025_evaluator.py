@@ -75,6 +75,33 @@ class DCASE2025Evaluator:
 
         logger.info(f"Found {len(csv_files)} CSV files in {baseline_dir}")
 
+        # Detect machine type from CSV filenames
+        machine_types_found = set()
+        for csv_file in csv_files:
+            if csv_file.name.startswith("anomaly_score_"):
+                parts = csv_file.name.split("_")
+                if len(parts) >= 3:
+                    machine_types_found.add(parts[2])
+
+        if not machine_types_found:
+            raise ValueError(f"Could not detect machine type from CSV files in {baseline_dir}")
+
+        # IMPORTANT: Official evaluator requires ALL 8 machine types!
+        REQUIRED_MACHINES = [
+            "AutoTrash", "BandSealer", "CoffeeGrinder", "HomeCamera",
+            "Polisher", "ScrewFeeder", "ToyPet", "ToyRCCar"
+        ]
+
+        missing_machines = set(REQUIRED_MACHINES) - machine_types_found
+        if missing_machines:
+            raise ValueError(
+                f"Official DCASE evaluator requires ALL 8 machine types. Missing: {sorted(missing_machines)}. "
+                f"Found: {sorted(machine_types_found)}. "
+                f"You must evaluate all machines before running the official evaluator."
+            )
+
+        logger.info(f"Verified all 8 required machine types are present: {sorted(machine_types_found)}")
+
         # Create output directory
         output_dir.mkdir(parents=True, exist_ok=True)
 
