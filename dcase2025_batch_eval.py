@@ -38,7 +38,7 @@ from loguru import logger
 sys.path.append('/data1/repos/EAT_projs/xares-main/src')
 
 from dcase_unsupervised.dcase2025_twostage_task import dcase2025_twostage_config, DCASETwoStageTask
-from dcase_unsupervised.dcase2025_evaluator import DCASE2025Evaluator
+from dcase_unsupervised.dcase2025_evaluator import evaluate_dcase2025
 
 
 def load_encoder_from_path(encoder_path: str):
@@ -85,6 +85,9 @@ def evaluate_single_encoder_machine(encoder_path: str, machine_type: str, k_neig
 
     # Load encoder
     encoder = load_encoder_from_path(encoder_path)
+
+    # Extract model name from encoder path
+    model_name = Path(encoder_path).stem
 
     # Create config with k=1 (following DCASE winners) and proper score normalization
     config = dcase2025_twostage_config(
@@ -224,7 +227,7 @@ def main():
     parser.add_argument("--stage", choices=["1", "2", "both"], default="both", help="Which stage to run: 1 (embeddings), 2 (k-NN), both (default)")
     parser.add_argument("--score-norm", choices=["sigmoid", "minmax", "zscore_sigmoid", "percentile"], default="sigmoid", help="Score normalization method (default: sigmoid)")
     parser.add_argument("--evaluate", action="store_true", help="Run DCASE2025 official evaluator after CSV generation")
-    parser.add_argument("--evaluator-root", type=str, default="/data/repos/EAT_projs/datasets/dcase_eval_data/dcase2025_task2_evaluator-main", help="Path to DCASE evaluator root")
+    parser.add_argument("--evaluator-root", type=str, default="/data1/repos/EAT_projs/datasets/dcase_eval_data/dcase2025_task2_evaluator-main", help="Path to DCASE evaluator root")
     # No summary CSV output; flags removed
     args = parser.parse_args()
 
@@ -266,9 +269,7 @@ def main():
         print("=" * 50)
 
         try:
-            evaluator = DCASE2025Evaluator(evaluator_root=args.evaluator_root)
-
-            # Collect all unique model names and their teams directories
+            # Collect all unique model-machine combinations
             eval_results = []
 
             for result in df.to_dict('records'):
@@ -279,21 +280,26 @@ def main():
                 model_name = Path(encoder_path).stem
                 machine_type = result['machine_type']
 
-                # Construct path to teams directory containing CSV files
-                # Structure: env/model_name/DCASE2025_{machine_type}_TwoStage/stage2_results/teams/baseline/
+                # Construct path to stage2_results directory
+                # Structure: env/model_name/DCASE2025_{machine_type}_TwoStage/stage2_results/
                 env_root = Path("env")  # Adjust if different
-                teams_dir = env_root / model_name / f"DCASE2025_{machine_type}_TwoStage" / "stage2_results" / "teams" / "baseline"
+                stage2_results_dir = env_root / model_name / f"DCASE2025_{machine_type}_TwoStage" / "stage2_results"
 
-                if not teams_dir.exists():
-                    logger.warning(f"Teams directory not found: {teams_dir}")
+                if not stage2_results_dir.exists():
+                    logger.warning(f"Stage2 results directory not found: {stage2_results_dir}")
                     continue
+
+                # Output directory for evaluation results
+                eval_output_dir = env_root / model_name / f"DCASE2025_{machine_type}_TwoStage" / "evaluation"
 
                 logger.info(f"Evaluating: {model_name} on {machine_type}")
 
                 try:
-                    metrics, results_csv = evaluator.evaluate_model(
-                        teams_dir=teams_dir,
-                        model_name=f"{model_name}_{machine_type}"
+                    # Use simplified evaluator
+                    metrics, results_csv = evaluate_dcase2025(
+                        stage2_results_dir=str(stage2_results_dir),
+                        output_dir=str(eval_output_dir),
+                        evaluator_root=args.evaluator_root
                     )
 
                     eval_results.append({
@@ -302,7 +308,7 @@ def main():
                         'official_score': metrics.get('official_score', 0.0),
                         'hmean_source': metrics.get('harmonic_mean_source', 0.0),
                         'hmean_target': metrics.get('harmonic_mean_target', 0.0),
-                        'results_csv': str(results_csv)
+                        'results_csv': str(results_csv) if results_csv else 'N/A'
                     })
 
                     logger.info(f"  Official Score: {metrics.get('official_score', 0.0):.4f}")
@@ -317,13 +323,13 @@ def main():
                 print("=" * 50)
                 eval_df = pd.DataFrame(eval_results)
                 print(eval_df.to_string(index=False))
-                print("\nDetailed results saved in env/*/evaluation_results/")
+                print("\nDetailed results saved in env/*/DCASE2025_*/evaluation/")
             else:
                 print("\nNo successful evaluations to display.")
 
         except Exception as e:
-            logger.error(f"Failed to initialize evaluator: {e}")
-            print(f"\nEvaluator initialization failed. Check that evaluator_root exists: {args.evaluator_root}")
+            logger.error(f"Failed to run evaluator: {e}")
+            print(f"\nEvaluator failed. Check that evaluator_root exists: {args.evaluator_root}")
 
     elif args.evaluate and args.stage == "1":
         print("\nSkipping evaluation (Stage 1 only generates embeddings, no CSV files)")

@@ -1,265 +1,149 @@
 """
-DCASE2025 Evaluator Wrapper
-Integrates with official DCASE2025 Task 2 evaluator to compute metrics
+DCASE2025 Evaluator Wrapper (Simplified)
+Direct interface to DCASE2025 evaluation without temporary folders or symlinks
 
-This module wraps the official evaluator and adapts paths for our folder structure.
+This module uses a minimally modified version of the official evaluator.
 """
 
-import os
-import sys
-import subprocess
 from pathlib import Path
-from typing import Dict, Optional, Tuple
-import pandas as pd
+from typing import Dict, Tuple
 from loguru import logger
+
+# Import the modified evaluator with new interface
+from dcase_unsupervised.dcase2025_evaluator_modified import evaluate_with_absolute_paths
 
 
 class DCASE2025Evaluator:
-    """Wrapper for DCASE2025 Task 2 official evaluator"""
+    """Simplified wrapper for DCASE2025 Task 2 evaluation"""
 
     def __init__(
         self,
-        evaluator_root: str = "/data/repos/EAT_projs/datasets/dcase_eval_data/dcase2025_task2_evaluator-main",
-        ground_truth_data: str = None,
-        ground_truth_domain: str = None,
-        ground_truth_attributes: str = None
+        evaluator_root: str = "/data1/repos/EAT_projs/datasets/dcase_eval_data/dcase2025_task2_evaluator-main"
     ):
         """
-        Initialize evaluator with ground truth paths
+        Initialize evaluator
 
         Args:
-            evaluator_root: Root directory containing evaluator and ground truth data
-            ground_truth_data: Override path for ground truth data
-            ground_truth_domain: Override path for ground truth domain
-            ground_truth_attributes: Override path for ground truth attributes
+            evaluator_root: Root directory containing ground_truth_* folders
         """
         self.evaluator_root = Path(evaluator_root)
-        self.evaluator_script = self.evaluator_root / "dcase2025_task2_evaluator.py"
 
         # Ground truth directories
-        self.ground_truth_data = Path(ground_truth_data) if ground_truth_data else self.evaluator_root / "ground_truth_data"
-        self.ground_truth_domain = Path(ground_truth_domain) if ground_truth_domain else self.evaluator_root / "ground_truth_domain"
-        self.ground_truth_attributes = Path(ground_truth_attributes) if ground_truth_attributes else self.evaluator_root / "ground_truth_attributes"
+        self.ground_truth_data = self.evaluator_root / "ground_truth_data"
+        self.ground_truth_domain = self.evaluator_root / "ground_truth_domain"
+        self.ground_truth_attributes = self.evaluator_root / "ground_truth_attributes"
 
         # Verify paths exist
-        if not self.evaluator_script.exists():
-            raise FileNotFoundError(f"Evaluator script not found: {self.evaluator_script}")
-        if not self.ground_truth_data.exists():
-            logger.warning(f"Ground truth data not found: {self.ground_truth_data}")
-        if not self.ground_truth_domain.exists():
-            logger.warning(f"Ground truth domain not found: {self.ground_truth_domain}")
-        if not self.ground_truth_attributes.exists():
-            logger.warning(f"Ground truth attributes not found: {self.ground_truth_attributes}")
+        for path in [self.ground_truth_data, self.ground_truth_domain, self.ground_truth_attributes]:
+            if not path.exists():
+                raise FileNotFoundError(f"Ground truth directory not found: {path}")
 
-    def create_symlinks(self, teams_dir: Path, results_dir: Path):
-        """
-        Create symlinks in results directory pointing to CSV files
+        logger.info(f"DCASE2025 Evaluator initialized: {self.evaluator_root}")
 
-        Args:
-            teams_dir: Source directory containing teams/baseline/anomaly_score_*.csv
-            results_dir: Destination directory for symlinks
-        """
-        results_dir.mkdir(parents=True, exist_ok=True)
-
-        # Create symlink to teams directory
-        teams_link = results_dir / "teams"
-        if teams_link.exists():
-            teams_link.unlink()
-
-        # Create relative symlink
-        teams_link.symlink_to(teams_dir.resolve(), target_is_directory=True)
-        logger.info(f"Created symlink: {teams_link} -> {teams_dir}")
-
-    def evaluate_model(
+    def evaluate_stage2_results(
         self,
-        teams_dir: Path,
-        model_name: str,
-        results_dir: Optional[Path] = None
+        stage2_results_dir: Path,
+        output_dir: Path
     ) -> Tuple[Dict, Path]:
         """
-        Run DCASE evaluator on model results
+        Evaluate Stage 2 results using minimally modified official evaluator
 
         Args:
-            teams_dir: Directory containing teams/baseline/*.csv files
-            model_name: Model name for results organization
-            results_dir: Optional custom results directory
+            stage2_results_dir: Path to stage2_results/ directory containing teams/baseline/*.csv
+            output_dir: Where to save evaluation results
 
         Returns:
             metrics: Dict containing all evaluation metrics
-            results_path: Path to detailed results CSV
+            results_csv: Path to the main results CSV file
         """
-        if results_dir is None:
-            results_dir = teams_dir.parent / "evaluation_results"
+        stage2_results_dir = Path(stage2_results_dir)
+        output_dir = Path(output_dir)
 
-        results_dir.mkdir(parents=True, exist_ok=True)
+        # Verify structure
+        teams_dir = stage2_results_dir / "teams"
+        if not teams_dir.exists():
+            raise FileNotFoundError(f"Teams directory not found: {teams_dir}")
 
-        # Create temporary evaluation directory with symlinks
-        eval_temp_dir = results_dir / f"eval_temp_{model_name}"
-        eval_temp_dir.mkdir(parents=True, exist_ok=True)
+        baseline_dir = teams_dir / "baseline"
+        if not baseline_dir.exists():
+            raise FileNotFoundError(f"Baseline directory not found: {baseline_dir}")
 
-        # Create symlinks for ground truth
-        for gt_name, gt_path in [
-            ("ground_truth_data", self.ground_truth_data),
-            ("ground_truth_domain", self.ground_truth_domain),
-            ("ground_truth_attributes", self.ground_truth_attributes)
-        ]:
-            link_path = eval_temp_dir / gt_name
-            if link_path.exists():
-                link_path.unlink()
-            link_path.symlink_to(gt_path.resolve(), target_is_directory=True)
+        # Check for CSV files
+        csv_files = list(baseline_dir.glob("*.csv"))
+        if not csv_files:
+            raise FileNotFoundError(f"No CSV files found in {baseline_dir}")
 
-        # Create proper teams structure for evaluator
-        # Evaluator expects: teams_root/team_name/*.csv
-        # We have: teams_dir (which is .../teams/baseline/)
-        # So we need to create: eval_temp_dir/teams/baseline -> teams_dir
-        teams_root_link = eval_temp_dir / "teams"
-        teams_root_link.mkdir(parents=True, exist_ok=True)
+        logger.info(f"Found {len(csv_files)} CSV files in {baseline_dir}")
 
-        baseline_link = teams_root_link / "baseline"
-        if baseline_link.exists():
-            baseline_link.unlink()
-        baseline_link.symlink_to(teams_dir.resolve(), target_is_directory=True)
-
-        # Output directories
-        output_dir = results_dir / f"results_{model_name}"
+        # Create output directory
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        additional_output_dir = results_dir / f"additional_results_{model_name}"
-        additional_output_dir.mkdir(parents=True, exist_ok=True)
+        # Call modified evaluator with absolute paths (NO temp folders, NO symlinks)
+        logger.info("Running DCASE2025 evaluator (modified interface)...")
 
-        logger.info(f"Running DCASE evaluator for {model_name}...")
-        logger.info(f"  Teams dir: {teams_dir}")
-        logger.info(f"  Results dir: {output_dir}")
+        status, official_score_df, auc_df, score_df, paper_score_df = evaluate_with_absolute_paths(
+            predictions_dir=str(baseline_dir),
+            ground_truth_data_dir=str(self.ground_truth_data),
+            ground_truth_domain_dir=str(self.ground_truth_domain),
+            ground_truth_attributes_dir=str(self.ground_truth_attributes),
+            result_dir=str(output_dir),
+            out_all=False
+        )
 
-        # Run evaluator
-        cmd = [
-            sys.executable,
-            str(self.evaluator_script),
-            "--teams_root_dir", str(teams_root_link),
-            "--result_dir", str(output_dir),
-            "--additional_result_dir", str(additional_output_dir),
-            "--dir_depth", "1",  # baseline is 1 level deep from teams_root_link
-            "--out_all", "True"
-        ]
+        if status != 0:
+            raise RuntimeError(f"Evaluator failed with status: {status}")
 
-        try:
-            # Change to evaluator directory for imports to work
-            original_dir = os.getcwd()
-            os.chdir(self.evaluator_root)
+        logger.info("Evaluation completed successfully")
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=True
-            )
+        # Find results CSV
+        result_files = list(output_dir.glob("*_result.csv"))
+        if result_files:
+            results_csv = result_files[0]
+        else:
+            results_csv = None
+            logger.warning("No result CSV file found")
 
-            logger.info("Evaluator completed successfully")
-            logger.debug(f"Evaluator output:\n{result.stdout}")
+        # Extract metrics from dataframe
+        metrics = {}
+        if official_score_df is not None and not official_score_df.empty:
+            row = official_score_df.iloc[0]
+            metrics['official_score'] = row.get('official score', 0.0)
+            metrics['harmonic_mean_source'] = row.get('harmonic mean (source)', 0.0)
+            metrics['harmonic_mean_target'] = row.get('harmonic mean (target)', 0.0)
+            metrics['arithmetic_mean'] = row.get('arithmetic mean', 0.0)
 
-            os.chdir(original_dir)
+            logger.info(f"  Official Score: {metrics.get('official_score', 0.0):.4f}")
+            logger.info(f"  H-mean (source): {metrics.get('harmonic_mean_source', 0.0):.4f}")
+            logger.info(f"  H-mean (target): {metrics.get('harmonic_mean_target', 0.0):.4f}")
 
-        except subprocess.CalledProcessError as e:
-            os.chdir(original_dir)
-            logger.error(f"Evaluator failed: {e}")
-            logger.error(f"Stdout:\n{e.stdout}")
-            logger.error(f"Stderr:\n{e.stderr}")
-            raise
-
-        # Parse results
-        metrics = self._parse_results(output_dir, model_name)
-
-        # Create permanent symlinks in results directory
-        self.create_symlinks(teams_dir, results_dir / f"csv_files_{model_name}")
-
-        # Cleanup temp directory
-        import shutil
-        shutil.rmtree(eval_temp_dir, ignore_errors=True)
-
-        results_csv = output_dir / f"baseline_result.csv"
         return metrics, results_csv
 
-    def _parse_results(self, results_dir: Path, model_name: str) -> Dict:
-        """Parse evaluator output CSV to extract metrics"""
 
-        # Look for result CSV file
-        result_files = list(results_dir.glob("*_result.csv"))
-        if not result_files:
-            logger.warning(f"No result CSV found in {results_dir}")
-            return {}
-
-        result_file = result_files[0]
-        logger.info(f"Parsing results from: {result_file}")
-
-        # Read CSV and extract metrics
-        metrics = {}
-
-        try:
-            with open(result_file, 'r') as f:
-                lines = f.readlines()
-
-            # Parse official score
-            for line in lines:
-                if "official score" in line.lower() and "ci95" not in line.lower():
-                    parts = line.strip().split(',')
-                    if len(parts) >= 3:
-                        metrics['official_score'] = float(parts[2])
-
-            # Parse per-machine AUCs (look for machine type rows)
-            machine_types = ["AutoTrash", "BandSealer", "CoffeeGrinder", "HomeCamera",
-                           "Polisher", "ScrewFeeder", "ToyPet", "ToyRCCar"]
-
-            for machine in machine_types:
-                for line in lines:
-                    if line.startswith(machine + ","):
-                        # Skip section rows, look for mean rows
-                        continue
-
-            # Parse harmonic means
-            for line in lines:
-                if "harmonic mean over all" in line.lower():
-                    parts = line.strip().split(',')
-                    if len(parts) >= 4:
-                        metrics['harmonic_mean_auc'] = float(parts[2])
-                        metrics['harmonic_mean_pauc'] = float(parts[3])
-
-                elif "source harmonic mean" in line.lower():
-                    parts = line.strip().split(',')
-                    if len(parts) >= 3:
-                        metrics['harmonic_mean_source'] = float(parts[2])
-
-                elif "target harmonic mean" in line.lower():
-                    parts = line.strip().split(',')
-                    if len(parts) >= 3:
-                        metrics['harmonic_mean_target'] = float(parts[2])
-
-            logger.info(f"Extracted metrics: {metrics}")
-
-        except Exception as e:
-            logger.error(f"Failed to parse results: {e}")
-            metrics = {}
-
-        return metrics
-
-
-def run_evaluation(
-    teams_dir: Path,
-    model_name: str,
-    results_dir: Optional[Path] = None,
-    evaluator_root: str = "/data/repos/EAT_projs/datasets/dcase_eval_data/dcase2025_task2_evaluator-main"
+def evaluate_dcase2025(
+    stage2_results_dir: str,
+    output_dir: str,
+    evaluator_root: str = "/data1/repos/EAT_projs/datasets/dcase_eval_data/dcase2025_task2_evaluator-main"
 ) -> Tuple[Dict, Path]:
     """
-    Convenience function to run DCASE evaluation
+    Simple function to evaluate DCASE2025 Stage 2 results
 
     Args:
-        teams_dir: Directory containing teams/baseline/*.csv files
-        model_name: Model name for results organization
-        results_dir: Optional custom results directory
-        evaluator_root: Path to evaluator root directory
+        stage2_results_dir: Path to stage2_results/ directory (contains teams/baseline/*.csv)
+        output_dir: Where to save evaluation results
+        evaluator_root: Path to ground truth root directory
 
     Returns:
-        metrics: Dict containing evaluation metrics
-        results_path: Path to detailed results CSV
+        metrics: Dict with official_score, harmonic means, etc.
+        results_csv: Path to evaluation results CSV
+
+    Example:
+        metrics, csv_path = evaluate_dcase2025(
+            stage2_results_dir="env/dasheng_encoder/DCASE2025_AutoTrash_TwoStage/stage2_results",
+            output_dir="env/dasheng_encoder/DCASE2025_AutoTrash_TwoStage/evaluation"
+        )
     """
     evaluator = DCASE2025Evaluator(evaluator_root=evaluator_root)
-    return evaluator.evaluate_model(teams_dir, model_name, results_dir)
+    return evaluator.evaluate_stage2_results(
+        stage2_results_dir=Path(stage2_results_dir),
+        output_dir=Path(output_dir)
+    )
