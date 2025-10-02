@@ -271,7 +271,7 @@ def output_result(target_dir, machines, section_ids, result_dir, additional_resu
                 print(f"\tground_truth_path : {os.path.exists(ground_truth_path)}")
                 print(f"\tgt_domain_path : {os.path.exists(gt_domain_path)}")
                 print(f"\tgt_attribute_path : {os.path.exists(gt_attribute_path)}")
-                return 0, None, None, None, None
+                return -1, None, None, None, None  # Changed from 0 to -1 (error status)
             with open(gt_attribute_path) as attribute_file:
                 attribute_list = list(csv.reader(attribute_file))
                 attribute_dict = {f"{attribute[1]}.wav":attribute[0] for attribute in attribute_list}

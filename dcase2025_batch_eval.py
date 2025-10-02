@@ -302,16 +302,24 @@ def main():
                         evaluator_root=args.evaluator_root
                     )
 
+                    # Check if metrics are valid
+                    official_score = metrics.get('official_score', 0.0)
+
+                    # Warn if score is suspiciously low or missing
+                    if official_score < 0.01:
+                        logger.warning(f"Official score for {model_name}/{machine_type} is very low or zero: {official_score:.6f}")
+                        logger.warning("This may indicate: missing files, data mismatch, or evaluation failure")
+
                     eval_results.append({
                         'model': model_name,
                         'machine': machine_type,
-                        'official_score': metrics.get('official_score', 0.0),
+                        'official_score': official_score,
                         'hmean_source': metrics.get('harmonic_mean_source', 0.0),
                         'hmean_target': metrics.get('harmonic_mean_target', 0.0),
                         'results_csv': str(results_csv) if results_csv else 'N/A'
                     })
 
-                    logger.info(f"  Official Score: {metrics.get('official_score', 0.0):.4f}")
+                    logger.info(f"  Official Score: {official_score:.4f}")
 
                 except Exception as e:
                     logger.error(f"Evaluation failed for {model_name}/{machine_type}: {e}")

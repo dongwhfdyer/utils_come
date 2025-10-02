@@ -93,6 +93,10 @@ class DCASE2025Evaluator:
         if status != 0:
             raise RuntimeError(f"Evaluator failed with status: {status}")
 
+        # Additional check: if status is 0 but DataFrames are None, something went wrong
+        if official_score_df is None:
+            raise RuntimeError("Evaluator returned success but no results DataFrame. Check ground truth files.")
+
         logger.info("Evaluation completed successfully")
 
         # Find results CSV
@@ -115,6 +119,12 @@ class DCASE2025Evaluator:
             logger.info(f"  Official Score: {metrics.get('official_score', 0.0):.4f}")
             logger.info(f"  H-mean (source): {metrics.get('harmonic_mean_source', 0.0):.4f}")
             logger.info(f"  H-mean (target): {metrics.get('harmonic_mean_target', 0.0):.4f}")
+
+            # Warn if official score is suspiciously low
+            if metrics.get('official_score', 0.0) < 0.01:
+                logger.warning(f"Official score is very low ({metrics['official_score']:.6f}). This may indicate an evaluation problem.")
+        else:
+            logger.warning("Official score DataFrame is empty. No metrics extracted.")
 
         return metrics, results_csv
 
