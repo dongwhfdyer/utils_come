@@ -379,14 +379,15 @@ class GPUOccupier:
                 # Determine adjustment command
                 command = self._determine_command(smoothed_utilization, smoothed_power)
 
-                # Send command to all workers if changed
-                if command != last_command:
-                    for queue in self.queues:
-                        try:
-                            queue.put(command)
-                        except:
-                            pass  # Queue might be full
+                # Send command to all workers every cycle (like occ.sh)
+                for queue in self.queues:
+                    try:
+                        queue.put(command)
+                    except:
+                        pass  # Queue might be full
 
+                # Log only when command changes
+                if command != last_command:
                     logging.info(f"Command: {command} (Util: {smoothed_utilization:.1f}%, Power: {smoothed_power:.1f}W)")
                     last_command = command
 
