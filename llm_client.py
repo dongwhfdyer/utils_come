@@ -57,20 +57,31 @@ class ModelConfig:
         """
         params = {}
 
-        # Add standard parameters (only if not None)
+        # Standard OpenAI parameters (always supported)
         params["max_tokens"] = max_tokens if max_tokens is not None else self.max_tokens
         params["temperature"] = temperature if temperature is not None else self.temperature
+
+        # For non-standard parameters, we need to use extra_body
+        # Build extra_body dict
+        extra_body_params = {}
 
         if self.top_p is not None:
             params["top_p"] = self.top_p
         if self.top_k is not None:
-            params["top_k"] = self.top_k
+            extra_body_params["top_k"] = self.top_k
         if self.repetition_penalty is not None:
-            params["repetition_penalty"] = self.repetition_penalty
+            extra_body_params["repetition_penalty"] = self.repetition_penalty
         if self.seed is not None:
-            params["seed"] = self.seed
+            extra_body_params["seed"] = self.seed
+
+        # Merge with configured extra_body
         if self.extra_body is not None:
-            params["extra_body"] = self.extra_body
+            if isinstance(self.extra_body, dict):
+                extra_body_params.update(self.extra_body)
+
+        # Add extra_body if it has content
+        if extra_body_params:
+            params["extra_body"] = extra_body_params
 
         # Apply overrides
         params.update(override_kwargs)
