@@ -33,11 +33,15 @@ class DASHENGMelSpectrogram:
 
         Args:
             device: Device to run on ('cpu' or 'cuda')
+
+        Note: torchaudio transforms generally run on CPU for stability.
+              Tensors are moved to device after transformation.
         """
         self.device = device
         self.config = AUDIO_CONFIG
 
         # Create mel-spectrogram transform (matches DASHENG exactly)
+        # Note: Keep transform on CPU for torchaudio compatibility
         self.mel_transform = torchaudio.transforms.MelSpectrogram(
             sample_rate=self.config['sample_rate'],
             n_fft=self.config['n_fft'],
@@ -51,13 +55,14 @@ class DASHENGMelSpectrogram:
             n_mels=self.config['n_mels'],
             f_min=self.config['f_min'],
             f_max=self.config['f_max'],
-        ).to(device)
+        )
 
         # Create amplitude to dB transform (matches DASHENG)
+        # Note: Keep transform on CPU for torchaudio compatibility
         self.amplitude_to_db = torchaudio.transforms.AmplitudeToDB(
             stype='power',  # Input is power spectrogram
             top_db=self.config['top_db'],
-        ).to(device)
+        )
 
     def load_audio(
         self,
@@ -82,18 +87,25 @@ class DASHENGMelSpectrogram:
         if target_sr is None:
             target_sr = self.config['sample_rate']
 
-        # Load audio
-        waveform, orig_sr = torchaudio.load(
-            audio_path,
-            frame_offset=int(start_time * orig_sr) if start_time > 0 else 0,
-            num_frames=int(duration * orig_sr) if duration else -1,
-        )
+        # Load audio (first load to get orig_sr, then slice if needed)
+        # torchaudio.load always returns CPU tensors
+        waveform, orig_sr = torchaudio.load(audio_path)
 
-        # Resample if needed
+        # Slice audio if start_time or duration specified
+        if start_time > 0 or duration is not None:
+            start_sample = int(start_time * orig_sr)
+            if duration is not None:
+                num_samples = int(duration * orig_sr)
+                waveform = waveform[:, start_sample:start_sample + num_samples]
+            else:
+                waveform = waveform[:, start_sample:]
+
+        # Resample if needed (keep on CPU for torchaudio transforms)
         if orig_sr != target_sr:
             resampler = torchaudio.transforms.Resample(orig_sr, target_sr)
             waveform = resampler(waveform)
 
+        # Move to target device only after all transforms
         return waveform.to(self.device), target_sr
 
     def preprocess_waveform(
@@ -137,17 +149,20 @@ class DASHENGMelSpectrogram:
         self,
         waveform: torch.Tensor,
         return_db: bool = True,
-    ) -> torch.Tensor:
+        return_power: bool = False,
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """
         Compute mel-spectrogram from waveform.
 
         Args:
             waveform: Audio tensor of shape (1, samples) or (batch, 1, samples)
             return_db: If True, return dB-scale spectrogram (default: True)
+            return_power: If True, also return linear power spectrogram (default: False)
 
         Returns:
             mel_spec: Mel-spectrogram of shape (1, n_mels, time_frames) or (batch, 1, n_mels, time_frames)
                      If return_db=True, values are in dB scale
+            mel_power: (optional) Linear power spectrogram if return_power=True
         """
         # Ensure correct shape
         if waveform.ndim == 2:
@@ -159,34 +174,50 @@ class DASHENGMelSpectrogram:
         else:
             waveform_for_mel = waveform
 
-        # Compute mel-spectrogram
-        mel_spec = self.mel_transform(waveform_for_mel)  # (batch, n_mels, time_frames)
+        # Move to CPU for torchaudio transforms (they work best on CPU)
+        waveform_cpu = waveform_for_mel.cpu()
+
+        # Compute mel-spectrogram (linear power) on CPU
+        mel_power = self.mel_transform(waveform_cpu)  # (batch, n_mels, time_frames)
 
         # Convert to dB if requested
         if return_db:
-            mel_spec = self.amplitude_to_db(mel_spec)
+            mel_db = self.amplitude_to_db(mel_power)
+        else:
+            mel_db = mel_power
+
+        # Move back to target device
+        mel_db = mel_db.to(self.device)
+        mel_power = mel_power.to(self.device)
 
         # Add channel dimension back
-        mel_spec = mel_spec.unsqueeze(1)  # (batch, 1, n_mels, time_frames)
+        mel_spec = mel_db.unsqueeze(1)  # (batch, 1, n_mels, time_frames)
 
-        return mel_spec
+        if return_power:
+            mel_power_out = mel_power.unsqueeze(1)  # (batch, 1, n_mels, time_frames)
+            return mel_spec, mel_power_out
+        else:
+            return mel_spec
 
     def __call__(
         self,
         audio_input: Union[str, Path, torch.Tensor],
         return_db: bool = True,
+        return_power: bool = False,
         preprocess: bool = True,
-    ) -> torch.Tensor:
+    ) -> Union[torch.Tensor, Tuple[torch.Tensor, torch.Tensor]]:
         """
         Main interface: convert audio to mel-spectrogram.
 
         Args:
             audio_input: Audio file path or waveform tensor
             return_db: Return dB-scale spectrogram (default: True)
+            return_power: Also return linear power spectrogram (default: False)
             preprocess: Apply preprocessing (mono conversion, length normalization)
 
         Returns:
             mel_spec: Mel-spectrogram tensor of shape (1, n_mels, time_frames)
+            mel_power: (optional) Linear power spectrogram if return_power=True
         """
         # Load audio if path provided
         if isinstance(audio_input, (str, Path)):
@@ -199,9 +230,13 @@ class DASHENGMelSpectrogram:
             waveform = self.preprocess_waveform(waveform)
 
         # Compute mel-spectrogram
-        mel_spec = self.compute_mel_spectrogram(waveform, return_db=return_db)
+        result = self.compute_mel_spectrogram(waveform, return_db=return_db, return_power=return_power)
 
-        return mel_spec.squeeze(0)  # (1, n_mels, time_frames) - remove batch dim
+        if return_power:
+            mel_spec, mel_power = result
+            return mel_spec.squeeze(0), mel_power.squeeze(0)
+        else:
+            return result.squeeze(0)  # (1, n_mels, time_frames) - remove batch dim
 
 
 def get_mel_spectrogram(

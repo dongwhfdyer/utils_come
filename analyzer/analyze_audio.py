@@ -232,7 +232,7 @@ def analyze_audio_directory(
             for result in results:
                 writer.writerow({
                     'audio_path': result['audio_path'],
-                    'caption': result['caption'],
+                    'caption': result['caption'] if result['caption'] is not None else '',
                 })
 
         print(f"✓ Saved {len(results)} captions to {output_csv}")

@@ -1,0 +1,88 @@
+# LLM Model Configuration
+# All models use OpenAI-compatible API
+
+models:
+  # DashScope (Alibaba Cloud) Models
+  qwen3-32b-dashscope:
+    provider: "dashscope"
+    api_base: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    api_key_env: "DASHSCOPE_API_KEY"
+    model_name: "qwen-plus"
+    description: "Qwen3-32B via DashScope API"
+    max_tokens: 4096
+    temperature: 0.7
+
+  qwen-turbo-dashscope:
+    provider: "dashscope"
+    api_base: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    api_key_env: "DASHSCOPE_API_KEY"
+    model_name: "qwen-turbo"
+    description: "Qwen Turbo (faster, smaller) via DashScope"
+    max_tokens: 4096
+    temperature: 0.7
+
+  # Local SGLang Models
+  qwen3-32b-local-sglang:
+    provider: "sglang"
+    api_base: "http://localhost:30000/v1"
+    api_key_env: "SGLANG_API_KEY"  # Can be dummy for local
+    model_name: "Qwen/Qwen2.5-32B-Instruct"
+    description: "Qwen3-32B running locally via SGLang"
+    max_tokens: 4096
+    temperature: 0.7
+
+  qwen2-7b-local-sglang:
+    provider: "sglang"
+    api_base: "http://localhost:30000/v1"
+    api_key_env: "SGLANG_API_KEY"
+    model_name: "Qwen/Qwen2-7B-Instruct"
+    description: "Qwen2-7B running locally via SGLang"
+    max_tokens: 4096
+    temperature: 0.7
+
+  # Doubao (Bytedance) Models
+  doubao-pro-32k:
+    provider: "doubao"
+    api_base: "https://doubao.zwchat.cn/v1"
+    api_key_env: "DOUABAO_API_KEY"
+    model_name: "gpt-4o"
+    description: "Doubao Pro 32K model"
+    max_tokens: 1024
+    temperature: 0.7
+
+  # OpenAI Models (for reference)
+  gpt-4o-openai:
+    provider: "openai"
+    api_base: "https://api.openai.com/v1"
+    api_key_env: "OPENAI_API_KEY"
+    model_name: "gpt-4o"
+    description: "OpenAI GPT-4o"
+    max_tokens: 4096
+    temperature: 0.7
+
+  gpt-4-turbo-openai:
+    provider: "openai"
+    api_base: "https://api.openai.com/v1"
+    api_key_env: "OPENAI_API_KEY"
+    model_name: "gpt-4-turbo"
+    description: "OpenAI GPT-4 Turbo"
+    max_tokens: 4096
+    temperature: 0.7
+
+  gpt-3.5-turbo-openai:
+    provider: "openai"
+    api_base: "https://api.openai.com/v1"
+    api_key_env: "OPENAI_API_KEY"
+    model_name: "gpt-3.5-turbo"
+    description: "OpenAI GPT-3.5 Turbo"
+    max_tokens: 4096
+    temperature: 0.7
+
+# Default model to use if not specified
+default_model: "qwen3-32b-dashscope"
+
+# Timeout settings (in seconds)
+timeout:
+  connect: 10
+  read: 60
+  write: 10
