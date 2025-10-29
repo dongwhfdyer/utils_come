@@ -21,10 +21,11 @@ import sys
 # Add project root to path
 project_root = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(project_root / 'analyzer'))  # Add analyzer for MelFeatures
 
 import psutil
 from src.validators.batch_caption_generator import BatchCaptionGenerator
-from src.core.models.mel_feature import MelFeatures
+from mel_feature_extraction import MelFeatures
 
 
 class Stage2ParameterTuner:
