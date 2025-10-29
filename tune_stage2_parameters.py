@@ -101,21 +101,21 @@ class Stage2ParameterTuner:
     def benchmark_config(
         self,
         llm_workers: int,
-        llm_batch_size: int,
     ) -> Dict:
         """Benchmark a single configuration"""
 
         print(f"\n{'='*60}")
-        print(f"Testing: llm_workers={llm_workers}, llm_batch_size={llm_batch_size}")
+        print(f"Testing: llm_workers={llm_workers}")
         print(f"{'='*60}")
 
         try:
             # Initialize caption generator
+            # Note: BatchCaptionGenerator doesn't have batch_size parameter
+            # It processes all features concurrently using max_workers threads
             generator = BatchCaptionGenerator(
                 style=self.caption_style,
                 model_id=self.model_id,
                 max_workers=llm_workers,
-                batch_size=llm_batch_size,
             )
 
             # Convert features to MelFeatures objects
@@ -156,7 +156,6 @@ class Stage2ParameterTuner:
 
             result = {
                 'llm_workers': llm_workers,
-                'llm_batch_size': llm_batch_size,
                 'captions_generated': len(captions),
                 'errors': error_count,
                 'success_rate': success_rate,
@@ -183,7 +182,6 @@ class Stage2ParameterTuner:
             print(f"✗ Failed: {str(e)}")
             return {
                 'llm_workers': llm_workers,
-                'llm_batch_size': llm_batch_size,
                 'success': False,
                 'error': str(e),
                 'throughput_captions_per_sec': 0,
@@ -204,24 +202,20 @@ class Stage2ParameterTuner:
         # Determine test parameters based on model type
         if self.is_local_model:
             # Local models can handle more concurrency
-            llm_workers_list = [4, 8, 16, 32]
-            llm_batch_sizes = [8, 16, 32, 64]
+            llm_workers_list = [4, 8, 16, 32, 64]
         else:
             # API models need to respect rate limits
             llm_workers_list = [2, 4, 8, 16]
-            llm_batch_sizes = [8, 16, 32]
 
         print(f"\nTesting llm_workers: {llm_workers_list}")
-        print(f"Testing llm_batch_sizes: {llm_batch_sizes}")
-        print(f"Total configurations: {len(llm_workers_list) * len(llm_batch_sizes)}")
+        print(f"Total configurations: {len(llm_workers_list)}")
 
         results = []
 
         for workers in llm_workers_list:
-            for batch_size in llm_batch_sizes:
-                result = self.benchmark_config(workers, batch_size)
-                results.append(result)
-                time.sleep(3)  # Cool down between tests (especially for API)
+            result = self.benchmark_config(workers)
+            results.append(result)
+            time.sleep(3)  # Cool down between tests (especially for API)
 
         return results
 
@@ -250,18 +244,17 @@ class Stage2ParameterTuner:
         print("RESULTS SUMMARY")
         print("="*60)
         print("\nTop 5 Configurations:")
-        print(f"{'Rank':<6} {'LLM Workers':<13} {'Batch Size':<12} {'Throughput (cap/sec)':<23} {'Success %'}")
-        print("-" * 80)
+        print(f"{'Rank':<6} {'LLM Workers':<13} {'Throughput (cap/sec)':<23} {'Success %'}")
+        print("-" * 70)
 
         for i, result in enumerate(sorted_results[:5], 1):
-            print(f"{i:<6} {result['llm_workers']:<13} {result['llm_batch_size']:<12} "
+            print(f"{i:<6} {result['llm_workers']:<13} "
                   f"{result['throughput_captions_per_sec']:<23.2f} {result.get('success_rate', 0):.1f}%")
 
         print("\n" + "="*60)
         print("OPTIMAL CONFIGURATION")
         print("="*60)
         print(f"  llm_workers: {best['llm_workers']}")
-        print(f"  llm_batch_size: {best['llm_batch_size']}")
         print(f"  Throughput: {best['throughput_captions_per_sec']:.2f} captions/sec")
         print(f"  Success rate: {best.get('success_rate', 0):.1f}%")
         print(f"  RAM: {best.get('ram_used_mb', 0):.1f} MB")
@@ -270,7 +263,6 @@ class Stage2ParameterTuner:
         return {
             'optimal_config': {
                 'llm_workers': best['llm_workers'],
-                'llm_batch_size': best['llm_batch_size'],
             },
             'optimal_throughput': best['throughput_captions_per_sec'],
             'model_id': self.model_id,
