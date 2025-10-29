@@ -18,6 +18,169 @@ from datetime import datetime
 from typing import List, Dict
 
 # ============================================================================
+# Feature Highlighting Configuration (Absolute Difference Thresholds)
+# ============================================================================
+
+FEATURE_THRESHOLDS = {
+    # Energy Distribution
+    'very_low_energy_mean': {'threshold': 10.0, 'unit': 'dB', 'description': 'Very low freq energy change'},
+    'very_low_energy_std': {'threshold': 5.0, 'unit': 'dB', 'description': 'Very low freq variability change'},
+    'low_energy_mean': {'threshold': 10.0, 'unit': 'dB', 'description': 'Low freq energy change'},
+    'low_energy_std': {'threshold': 5.0, 'unit': 'dB', 'description': 'Low freq variability change'},
+    'mid_low_energy_mean': {'threshold': 10.0, 'unit': 'dB', 'description': 'Mid-low freq energy change'},
+    'mid_low_energy_std': {'threshold': 5.0, 'unit': 'dB', 'description': 'Mid-low freq variability change'},
+    'mid_high_energy_mean': {'threshold': 10.0, 'unit': 'dB', 'description': 'Mid-high freq energy change'},
+    'mid_high_energy_std': {'threshold': 5.0, 'unit': 'dB', 'description': 'Mid-high freq variability change'},
+    'high_energy_mean': {'threshold': 10.0, 'unit': 'dB', 'description': 'High freq energy change'},
+    'high_energy_std': {'threshold': 5.0, 'unit': 'dB', 'description': 'High freq variability change'},
+    # Per-Band Temporal Characteristics
+    'very_low_energy_max': {'threshold': 10.0, 'unit': 'dB', 'description': 'Very low freq max energy change'},
+    'very_low_temporal_std': {'threshold': 5.0, 'unit': 'dB', 'description': 'Very low freq temporal std change'},
+    'low_energy_max': {'threshold': 10.0, 'unit': 'dB', 'description': 'Low freq max energy change'},
+    'low_temporal_std': {'threshold': 5.0, 'unit': 'dB', 'description': 'Low freq temporal std change'},
+    'mid_low_energy_max': {'threshold': 10.0, 'unit': 'dB', 'description': 'Mid-low freq max energy change'},
+    'mid_low_temporal_std': {'threshold': 5.0, 'unit': 'dB', 'description': 'Mid-low freq temporal std change'},
+    'mid_high_energy_max': {'threshold': 10.0, 'unit': 'dB', 'description': 'Mid-high freq max energy change'},
+    'mid_high_temporal_std': {'threshold': 5.0, 'unit': 'dB', 'description': 'Mid-high freq temporal std change'},
+    'high_energy_max': {'threshold': 10.0, 'unit': 'dB', 'description': 'High freq max energy change'},
+    'high_temporal_std': {'threshold': 5.0, 'unit': 'dB', 'description': 'High freq temporal std change'},
+    # Temporal Statistics
+    'temporal_energy_mean': {'threshold': 10.0, 'unit': 'dB', 'description': 'Overall energy level change'},
+    'temporal_energy_std': {'threshold': 10.0, 'unit': 'dB', 'description': 'Temporal variability change'},
+    'temporal_energy_max': {'threshold': 10.0, 'unit': 'dB', 'description': 'Max energy change'},
+    'temporal_energy_min': {'threshold': 10.0, 'unit': 'dB', 'description': 'Min energy change'},
+    'temporal_energy_range': {'threshold': 10.0, 'unit': 'dB', 'description': 'Energy range change'},
+    'temporal_variance': {'threshold': 50.0, 'unit': 'dB²', 'description': 'Energy variance change'},
+    # Silence Detection
+    'silence_percentage': {'threshold': 15.0, 'unit': '%', 'description': 'Silence pattern change'},
+    'num_silent_frames': {'threshold': 20, 'unit': '', 'description': 'Silent frame count change'},
+    'num_active_regions': {'threshold': 3, 'unit': '', 'description': 'Active region count change'},
+    'active_time_percentage': {'threshold': 15.0, 'unit': '%', 'description': 'Active time change'},
+    # Spectral Characteristics
+    'spectral_centroid_mel': {'threshold': 10.0, 'unit': 'mel bin', 'description': 'Frequency center shift'},
+    'spectral_spread_mel': {'threshold': 5.0, 'unit': 'mel bins', 'description': 'Frequency spread change'},
+    'spectral_skewness_mel': {'threshold': 0.5, 'unit': '', 'description': 'Spectral asymmetry change'},
+    'spectral_kurtosis_mel': {'threshold': 1.0, 'unit': '', 'description': 'Spectral peakedness change'},
+    'dominant_mel_bin': {'threshold': 10, 'unit': 'mel bin', 'description': 'Dominant frequency shift'},
+    # Concentration & Distribution
+    'energy_concentration': {'threshold': 3.0, 'unit': 'x', 'description': 'Energy focus change'},
+    'spectral_entropy': {'threshold': 1.0, 'unit': 'bits', 'description': 'Spectral uniformity change'},
+    'spectral_flatness_mel': {'threshold': 0.1, 'unit': '', 'description': 'Spectral flatness change'},
+    # Temporal Dynamics
+    'stationarity': {'threshold': 0.2, 'unit': '', 'description': 'Pattern stability change'},
+    'onset_strength': {'threshold': 0.1, 'unit': '', 'description': 'Onset strength change'},
+    # Salient Events
+    'num_peaks': {'threshold': 3, 'unit': '', 'description': 'Event count change'},
+}
+
+# Key features to always display (now includes ALL features from MelFeatures)
+KEY_FEATURES = [
+    # Energy Distribution
+    'very_low_energy_mean',
+    'very_low_energy_std',
+    'low_energy_mean',
+    'low_energy_std',
+    'mid_low_energy_mean',
+    'mid_low_energy_std',
+    'mid_high_energy_mean',
+    'mid_high_energy_std',
+    'high_energy_mean',
+    'high_energy_std',
+    # Per-Band Temporal Characteristics
+    'very_low_energy_max',
+    'very_low_temporal_std',
+    'low_energy_max',
+    'low_temporal_std',
+    'mid_low_energy_max',
+    'mid_low_temporal_std',
+    'mid_high_energy_max',
+    'mid_high_temporal_std',
+    'high_energy_max',
+    'high_temporal_std',
+    # Temporal Statistics
+    'temporal_energy_mean',
+    'temporal_energy_std',
+    'temporal_energy_max',
+    'temporal_energy_min',
+    'temporal_energy_range',
+    # Silence Detection
+    'silence_percentage',
+    'num_silent_frames',
+    'num_active_regions',
+    'active_time_percentage',
+    # Spectral Characteristics
+    'spectral_centroid_mel',
+    'spectral_spread_mel',
+    'spectral_skewness_mel',
+    'spectral_kurtosis_mel',
+    'dominant_mel_bin',
+    # Concentration & Distribution
+    'energy_concentration',
+    'spectral_entropy',
+    'spectral_flatness_mel',
+    # Temporal Dynamics
+    'stationarity',
+    'onset_strength',
+    'temporal_variance',
+    # Salient Events
+    'num_peaks',
+    # Note: peak_times and peak_magnitudes are lists and handled separately
+]
+
+# Simple descriptions for each feature (human-friendly explanations)
+FEATURE_DESCRIPTIONS = {
+    # Energy Distribution
+    'very_low_energy_mean': 'Average loudness in very low frequencies (bass/rumble)',
+    'very_low_energy_std': 'How much very low frequency loudness varies',
+    'low_energy_mean': 'Average loudness in low frequencies (bass)',
+    'low_energy_std': 'How much low frequency loudness varies',
+    'mid_low_energy_mean': 'Average loudness in mid-low frequencies',
+    'mid_low_energy_std': 'How much mid-low frequency loudness varies',
+    'mid_high_energy_mean': 'Average loudness in mid-high frequencies',
+    'mid_high_energy_std': 'How much mid-high frequency loudness varies',
+    'high_energy_mean': 'Average loudness in high frequencies (treble)',
+    'high_energy_std': 'How much high frequency loudness varies',
+    # Per-Band Temporal Characteristics
+    'very_low_energy_max': 'Peak loudness in very low frequencies',
+    'very_low_temporal_std': 'How stable very low frequencies are over time',
+    'low_energy_max': 'Peak loudness in low frequencies',
+    'low_temporal_std': 'How stable low frequencies are over time',
+    'mid_low_energy_max': 'Peak loudness in mid-low frequencies',
+    'mid_low_temporal_std': 'How stable mid-low frequencies are over time',
+    'mid_high_energy_max': 'Peak loudness in mid-high frequencies',
+    'mid_high_temporal_std': 'How stable mid-high frequencies are over time',
+    'high_energy_max': 'Peak loudness in high frequencies',
+    'high_temporal_std': 'How stable high frequencies are over time',
+    # Temporal Statistics
+    'temporal_energy_mean': 'Overall average loudness',
+    'temporal_energy_std': 'How much loudness changes over time',
+    'temporal_energy_max': 'Peak loudness moment',
+    'temporal_energy_min': 'Quietest moment',
+    'temporal_energy_range': 'Difference between loudest and quietest moments',
+    'temporal_variance': 'Overall loudness variation (squared)',
+    # Silence Detection
+    'silence_percentage': 'Percentage of time that is silent',
+    'num_silent_frames': 'Number of silent moments',
+    'num_active_regions': 'Number of separate sound events',
+    'active_time_percentage': 'Percentage of time with sound',
+    # Spectral Characteristics
+    'spectral_centroid_mel': 'Where most of the sound energy is concentrated (pitch center)',
+    'spectral_spread_mel': 'How wide the frequency range is',
+    'spectral_skewness_mel': 'Whether sound is more bass-heavy or treble-heavy',
+    'spectral_kurtosis_mel': 'How focused the sound is (narrow vs. broad)',
+    'dominant_mel_bin': 'The loudest frequency',
+    # Concentration & Distribution
+    'energy_concentration': 'How focused the sound is on specific frequencies',
+    'spectral_entropy': 'How evenly sound is distributed across frequencies',
+    'spectral_flatness_mel': 'How noise-like vs. tone-like the sound is',
+    # Temporal Dynamics
+    'stationarity': 'How steady the sound is (lower = more steady)',
+    'onset_strength': 'How sudden/sharp new sounds appear',
+    # Salient Events
+    'num_peaks': 'Number of loud bursts or events detected',
+}
+
+# ============================================================================
 # HTML Template with Audio Players
 # ============================================================================
 
@@ -190,6 +353,18 @@ HTML_TEMPLATE = """
             font-weight: 600;
             color: #475569;
         }}
+        .feature-value {{
+            font-family: 'Courier New', monospace;
+            color: #1e40af;
+        }}
+        .feature-description {{
+            display: block;
+            font-size: 12px;
+            color: #64748b;
+            font-style: italic;
+            margin-top: 2px;
+            padding-left: 0px;
+        }}
         .footer {{
             text-align: center;
             padding: 30px;
@@ -353,6 +528,111 @@ def load_results(comparison_dir: Path) -> tuple:
     return normal_results, abnormal_results
 
 
+def check_feature_highlight(feature_name: str, normal_value: float, abnormal_value: float) -> bool:
+    """
+    Check if feature difference exceeds threshold (absolute difference).
+
+    Returns:
+        True if should be highlighted
+    """
+    if feature_name not in FEATURE_THRESHOLDS:
+        return False
+
+    threshold = FEATURE_THRESHOLDS[feature_name]['threshold']
+    diff = abs(abnormal_value - normal_value)
+
+    return diff >= threshold
+
+
+def format_feature_value(feature_name: str, value: float) -> str:
+    """Format feature value with appropriate precision and unit"""
+    if feature_name not in FEATURE_THRESHOLDS:
+        # Handle list features (like peak_times, peak_magnitudes)
+        if isinstance(value, list):
+            return str(value)
+        return f"{value:.2f}"
+
+    unit = FEATURE_THRESHOLDS[feature_name]['unit']
+
+    # Format based on feature type
+    if isinstance(value, int) or feature_name in ['num_peaks', 'num_silent_frames', 'num_active_regions', 'dominant_mel_bin']:
+        formatted = f"{int(value)}"
+    elif feature_name in ['stationarity', 'energy_concentration', 'spectral_flatness_mel',
+                          'spectral_skewness_mel', 'spectral_kurtosis_mel', 'onset_strength']:
+        formatted = f"{value:.3f}"
+    elif 'percentage' in feature_name:
+        formatted = f"{value:.1f}"
+    elif 'entropy' in feature_name:
+        formatted = f"{value:.2f}"
+    elif 'variance' in feature_name:
+        formatted = f"{value:.1f}"
+    else:
+        # Default for dB values and mel bins
+        formatted = f"{value:.1f}"
+
+    if unit:
+        return f"{formatted} {unit}"
+    return formatted
+
+
+def generate_features_html(
+    normal_features: Dict,
+    abnormal_features: Dict,
+    is_normal_side: bool
+) -> str:
+    """
+    Generate features HTML for one side.
+
+    Args:
+        normal_features: Features dict for normal sample
+        abnormal_features: Features dict for abnormal sample
+        is_normal_side: True if generating for normal side, False for abnormal
+    """
+    features = normal_features if is_normal_side else abnormal_features
+    other_features = abnormal_features if is_normal_side else normal_features
+
+    feature_items = []
+
+    for feature_name in KEY_FEATURES:
+        if feature_name not in features:
+            continue
+
+        value = features[feature_name]
+        other_value = other_features[feature_name]
+
+        # Check if should highlight
+        should_highlight = check_feature_highlight(feature_name, normal_features[feature_name], abnormal_features[feature_name])
+
+        # Format feature name for display
+        display_name = feature_name.replace('_', ' ').title()
+
+        # Format value
+        formatted_value = format_feature_value(feature_name, value)
+
+        # Get description
+        description = FEATURE_DESCRIPTIONS.get(feature_name, '')
+
+        # Create HTML
+        highlight_class = "highlighted" if should_highlight else ""
+        if description:
+            feature_items.append(
+                f'<div class="feature-item {highlight_class}">'
+                f'<span class="feature-label">{display_name}:</span> '
+                f'<span class="feature-value">{formatted_value}</span>'
+                f'<span class="feature-description">{description}</span>'
+                f'</div>'
+            )
+        else:
+            feature_items.append(
+                f'<div class="feature-item {highlight_class}">'
+                f'<span class="feature-label">{display_name}:</span> '
+                f'<span class="feature-value">{formatted_value}</span>'
+                f'</div>'
+            )
+
+    return FEATURES_TEMPLATE.format(feature_items=''.join(feature_items))
+
+
 def generate_captions_html(captions: Dict, selected_styles: List[str]) -> str:
     """Generate captions HTML."""
     style_names = {
@@ -372,11 +652,6 @@ def generate_captions_html(captions: Dict, selected_styles: List[str]) -> str:
             )
 
     return ''.join(caption_parts)
-
-
-def generate_features_html(features_html: str) -> str:
-    """Pass through features HTML (already generated by compare_normal_abnormal.py)."""
-    return features_html if features_html else ""
 
 
 def generate_html_with_audio(
@@ -425,10 +700,12 @@ def generate_html_with_audio(
         normal_mel_spec = Path(normal['visualization']).relative_to(comparison_dir)
         abnormal_mel_spec = Path(abnormal['visualization']).relative_to(comparison_dir)
 
-        # Features HTML - for now, we'll skip features or generate simple version
-        # (The original script has complex highlighting logic)
+        # Generate features HTML (if enabled)
         normal_features_html = ""
         abnormal_features_html = ""
+        if summary.get('show_features', False):
+            normal_features_html = generate_features_html(normal['features'], abnormal['features'], is_normal_side=True)
+            abnormal_features_html = generate_features_html(normal['features'], abnormal['features'], is_normal_side=False)
 
         pair_html = PAIR_TEMPLATE.format(
             pair_index=i + 1,
