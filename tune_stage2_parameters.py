@@ -65,38 +65,12 @@ class Stage2ParameterTuner:
         return features
 
     def dict_to_mel_features(self, features_dict: Dict) -> MelFeatures:
-        """Convert dict to MelFeatures object"""
-        return MelFeatures(
-            spectral_centroid_mel=features_dict.get('spectral_centroid_mel', 0),
-            spectral_centroid_hz=features_dict.get('spectral_centroid_hz', 0),
-            spectral_bandwidth=features_dict.get('spectral_bandwidth', 0),
-            spectral_rolloff=features_dict.get('spectral_rolloff', 0),
-            spectral_contrast_mean=features_dict.get('spectral_contrast_mean', 0),
-            spectral_contrast_std=features_dict.get('spectral_contrast_std', 0),
-            spectral_flatness=features_dict.get('spectral_flatness', 0),
-            zero_crossing_rate_mean=features_dict.get('zero_crossing_rate_mean', 0),
-            zero_crossing_rate_std=features_dict.get('zero_crossing_rate_std', 0),
-            temporal_energy_mean=features_dict.get('temporal_energy_mean', 0),
-            temporal_energy_std=features_dict.get('temporal_energy_std', 0),
-            temporal_energy_range=features_dict.get('temporal_energy_range', 0),
-            low_energy_ratio=features_dict.get('low_energy_ratio', 0),
-            high_energy_ratio=features_dict.get('high_energy_ratio', 0),
-            silence_percentage=features_dict.get('silence_percentage', 0),
-            voiced_ratio=features_dict.get('voiced_ratio', 0),
-            attack_time=features_dict.get('attack_time', 0),
-            decay_time=features_dict.get('decay_time', 0),
-            temporal_centroid=features_dict.get('temporal_centroid', 0),
-            temporal_spread=features_dict.get('temporal_spread', 0),
-            temporal_skewness=features_dict.get('temporal_skewness', 0),
-            temporal_kurtosis=features_dict.get('temporal_kurtosis', 0),
-            onset_strength_mean=features_dict.get('onset_strength_mean', 0),
-            onset_count=features_dict.get('onset_count', 0),
-            tempo=features_dict.get('tempo', 0),
-            beat_strength=features_dict.get('beat_strength', 0),
-            stationarity=features_dict.get('stationarity', 0),
-            dynamic_range=features_dict.get('dynamic_range', 0),
-            num_peaks=features_dict.get('num_peaks', 0),
-        )
+        """
+        Convert dict to MelFeatures object.
+        Simply unpacks the dict - assumes the dict has the correct field names
+        from Stage 1 feature extraction.
+        """
+        return MelFeatures(**features_dict)
 
     def benchmark_config(
         self,
