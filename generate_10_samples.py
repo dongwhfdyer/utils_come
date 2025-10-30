@@ -272,9 +272,15 @@ class CaptionStyleGenerator:
             start = seg['start_time']
             end = seg['end_time']
             ld = seg['loudness']
-            line = (f"- {start:.1f}-{end:.1f}s: {ld['classification'].capitalize()}, "
-                   f"mean {ld['mean_db']:.1f}dB, slope {ld['slope_db_per_sec']:.1f}dB/s, "
-                   f"range [{ld['start_db']:.1f}→{ld['end_db']:.1f}]dB")
+
+            # Special formatting for silent segments
+            if ld['classification'] == 'silent':
+                line = (f"- {start:.1f}-{end:.1f}s: Silent (no audible content), "
+                       f"mean {ld['mean_db']:.1f}dB")
+            else:
+                line = (f"- {start:.1f}-{end:.1f}s: {ld['classification'].capitalize()}, "
+                       f"mean {ld['mean_db']:.1f}dB, slope {ld['slope_db_per_sec']:.1f}dB/s, "
+                       f"range [{ld['start_db']:.1f}→{ld['end_db']:.1f}]dB")
             loudness_lines.append(line)
 
         # Format pitch segments
